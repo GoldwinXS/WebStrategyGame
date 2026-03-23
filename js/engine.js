@@ -97,6 +97,10 @@ class Ship {
     this.shieldHitTimer = 0;
     this.shape = template.shape || template.id;
 
+    // Radar detection (enemies only): 0=unknown, 1=contact, 2=identified
+    this.detectionLevel = isPlayer ? 2 : 0;
+    this.sonarPingTimer = Math.random() * SONAR_PING_INTERVAL; // stagger pings
+
     // Campaign persistence
     this.xp = 0;
     this.level = 1;
@@ -158,6 +162,11 @@ class Ship {
       this.shieldTimer -= dt;
     } else if (this.shields < this.maxShields) {
       this.shields = Math.min(this.shields + this.shieldRate * dt, this.maxShields);
+    }
+
+    // Hull regen (from repair nanites module)
+    if (this.hullRegen && this.hullRegen > 0) {
+      this.hull = Math.min(this.hull + this.hullRegen * dt, this.maxHull);
     }
 
     // Hit flash
@@ -269,6 +278,12 @@ class Ship {
     const jam = (this.ewJammedTimer > 0) ? (this.ewJammedStrength / 100) : 0;
     const effectiveRange = w.range * Math.max(0.4, 1 - jam * 0.5);
     if (d > effectiveRange) return false;
+    // Firing arc: weapon can only fire within arc/2 radians of ship facing
+    if (w.arc !== undefined) {
+      const toTarget = angleToward(this.x, this.y, target.x, target.y);
+      const diff = Math.abs(normalizeAngle(toTarget - this.angle));
+      if (diff > w.arc) return false;
+    }
     if (w.type === 'beam') return !w.beamActive && !w.recharging;
     if (w.type === 'melee' || w.type === 'aoe') return w.timer <= 0;
     return w.timer <= 0;
@@ -295,18 +310,30 @@ class Ship {
   static fromSaveData(data) {
     const tpl = SHIP_TEMPLATES[data.templateId];
     if (!tpl) return null;
-    const ship = new Ship(tpl, true, data.name);
-    ship.isFlagship = data.isFlagship || false;
-    ship.hull = data.hull;
-    ship.maxHull = data.maxHull;
-    ship.shields = data.shields;
-    ship.maxShields = data.maxShields;
-    ship.shieldRate = data.shieldRate;
-    ship.armor = data.armor;
-    ship.maxSpeed = data.maxSpeed;
-    ship.upgrades = data.upgrades || [];
-    ship.xp = data.xp || 0;
-    ship.level = data.level || 1;
+    // Build a merged template that includes module-added weapons
+    const mergedTpl = Object.assign({}, tpl);
+    const baseWeaponIds = tpl.weapons || [];
+    const extraWeaponIds = (data.weaponIds || []).slice(baseWeaponIds.length);
+    mergedTpl.weapons = [...baseWeaponIds, ...extraWeaponIds];
+    const ship = new Ship(mergedTpl, true, data.name);
+    ship.isFlagship  = data.isFlagship || false;
+    ship.hull        = data.hull;
+    ship.maxHull     = data.maxHull;
+    ship.shields     = data.shields;
+    ship.maxShields  = data.maxShields;
+    ship.shieldRate  = data.shieldRate;
+    ship.armor       = data.armor;
+    ship.maxSpeed    = data.maxSpeed;
+    ship.upgrades    = data.upgrades || [];
+    ship.modules     = data.modules  || [];
+    ship.xp          = data.xp      || 0;
+    ship.level       = data.level   || 1;
+    // Module-added stats
+    if (data.depthRate  !== undefined) ship.depthRate  = data.depthRate;
+    if (data.ewStrength !== undefined) ship.ewStrength = data.ewStrength;
+    if (data.detectRange!== undefined) ship.detectRange= data.detectRange;
+    if (data.stealthRating!==undefined)ship.stealthRating=data.stealthRating;
+    if (data.hullRegen  !== undefined) ship.hullRegen  = data.hullRegen;
     return ship;
   }
 }
@@ -466,89 +493,215 @@ class Effect {
 }
 
 // ── AI ────────────────────────────────────────────────────────────
+// State machine AI with flanking, depth tactics, retreat, and focus fire.
 function updateAI(ship, playerShips, dt) {
   ship.aiTimer -= dt;
 
-  const alivePlayerShips = playerShips.filter(s => !s.isDestroyed);
-  if (alivePlayerShips.length === 0) return;
+  const alive = playerShips.filter(s => !s.isDestroyed);
+  if (alive.length === 0) return;
 
-  // Find nearest player ship
-  let nearest = null, nearestD = Infinity;
-  for (const ps of alivePlayerShips) {
-    const d = dist(ship.x, ship.y, ps.x, ps.y);
-    if (d < nearestD) { nearestD = d; nearest = ps; }
-  }
-  if (!nearest) return;
+  const hullPct    = ship.hull / ship.maxHull;
+  const shieldPct  = ship.maxShields > 0 ? ship.shields / ship.maxShields : 1;
+  const tplData    = ENEMY_TEMPLATES[ship.templateId];
+  const prefDepth  = tplData ? (tplData.preferredDepth || 100) : 100;
 
-  // Assign attack target (prefer targets at similar depth)
-  if (!ship.attackTarget || ship.attackTarget.isDestroyed) {
-    let best = nearest, bestScore = Infinity;
-    for (const ps of alivePlayerShips) {
-      const distScore = dist(ship.x, ship.y, ps.x, ps.y);
-      const depthPenalty = Math.abs(ship.depth - ps.depth) * 0.5;
-      const score = distScore + depthPenalty;
-      if (score < bestScore) { bestScore = score; best = ps; }
+  // Get max weapon range (ignoring EW)
+  const primaryRange = ship.weapons.reduce((best, w) =>
+    (w.type !== 'ew' && w.range > best) ? w.range : best, 300);
+
+  // Retarget: prefer weakest + flagship + nearby + similar depth
+  if (!ship.attackTarget || ship.attackTarget.isDestroyed || ship.aiTimer <= 0) {
+    let best = null, bestScore = -Infinity;
+    for (const ps of alive) {
+      const distScore   = -dist(ship.x, ship.y, ps.x, ps.y) * 0.002;
+      const weakScore   = (1 - ps.hull / ps.maxHull) * 180;
+      const depthScore  = -Math.abs(ship.depth - ps.depth) * 0.4;
+      const flagScore   = ps.isFlagship ? 60 : 0;
+      const s = distScore + weakScore + depthScore + flagScore;
+      if (s > bestScore) { bestScore = s; best = ps; }
     }
     ship.attackTarget = best;
   }
 
   const target = ship.attackTarget;
+  if (!target) return;
   const d = dist(ship.x, ship.y, target.x, target.y);
+  const depthGap = Math.abs(ship.depth - target.depth);
 
-  // Depth management: steer toward preferred depth
-  const tplData = ENEMY_TEMPLATES[ship.templateId];
-  const preferredDepth = tplData ? (tplData.preferredDepth || 100) : 100;
-  if (Math.abs(ship.depth - preferredDepth) > 40 && ship.aiTimer <= 0) {
-    ship.setDepthTarget(preferredDepth + (Math.random() - 0.5) * 60);
+  // Helper: clamp move to world bounds
+  const clampedMove = (tx, ty) => {
+    ship.setMoveTarget(
+      Math.max(120, Math.min(WORLD_W - 120, tx)),
+      Math.max(120, Math.min(WORLD_H - 120, ty))
+    );
+  };
+
+  // Retreat trigger: once badly damaged, permanently flee (creates chase gameplay)
+  if (hullPct < 0.28 && ship.aiState !== 'retreat') {
+    ship.aiState = 'retreat';
+    ship.aiTimer = 0;
   }
 
-  // Get primary weapon range
-  const primaryRange = ship.weapons.length > 0 ? ship.weapons[0].range : 300;
-
   switch (ship.aiType) {
+
+    // ── SWARM (Keth'vari fast scouts) ────────────────────────────
     case 'swarm': {
-      // Rush toward target
-      ship.setMoveTarget(target.x + (Math.random()-0.5)*50, target.y + (Math.random()-0.5)*50);
+      if (ship.aiState === 'retreat') {
+        // Wounded swarmers scatter deep and zigzag to survive
+        const ang = angleToward(target.x, target.y, ship.x, ship.y);
+        const juke = Math.sin(Date.now() * 0.002 + ship.id) * 0.8;
+        clampedMove(ship.x + Math.sin(ang + juke)*280, ship.y - Math.cos(ang + juke)*280);
+        ship.setDepthTarget(prefDepth + 150 + Math.random() * 100);
+        break;
+      }
+      if (ship.aiState === 'dive') {
+        // Deep approach: descend and rush from below
+        ship.setDepthTarget(prefDepth + 120 + Math.random() * 80);
+        clampedMove(target.x + (Math.random()-0.5)*80, target.y + (Math.random()-0.5)*80);
+        if (ship.aiTimer <= 0) { ship.aiState = 'seek'; ship.setDepthTarget(prefDepth); }
+        break;
+      }
+      // Seek: flanking swarm approach from random arcs
+      if (ship.aiTimer <= 0) {
+        if (Math.random() < 0.25) {
+          // Occasionally dive-bomb
+          ship.aiState = 'dive';
+          ship.aiTimer = 2.5 + Math.random();
+        } else {
+          // Flank from a random arc
+          const baseAng = angleToward(ship.x, ship.y, target.x, target.y);
+          const flankAng = baseAng + (Math.random() - 0.5) * 1.4;
+          clampedMove(
+            target.x - Math.sin(flankAng) * primaryRange * 0.6,
+            target.y + Math.cos(flankAng) * primaryRange * 0.6
+          );
+          ship.aiTimer = 0.8 + Math.random() * 0.8;
+          ship.setDepthTarget(prefDepth + (Math.random()-0.5) * 80);
+        }
+      }
       break;
     }
+
+    // ── AGGRESSIVE (Keth hunters / Shard slicers) ────────────────
     case 'aggressive': {
+      if (ship.aiState === 'retreat') {
+        // Damaged aggressor backs off while still firing
+        const ang = angleToward(target.x, target.y, ship.x, ship.y);
+        clampedMove(ship.x + Math.sin(ang)*320, ship.y - Math.cos(ang)*320);
+        ship.setDepthTarget(Math.min(WORLD_DEPTH - 30, prefDepth + 180));
+        break;
+      }
       if (ship.aiTimer <= 0) {
-        // Move to optimal range
-        if (d > primaryRange * 0.8) {
-          ship.setMoveTarget(target.x + (Math.random()-0.5)*60, target.y + (Math.random()-0.5)*60);
-        } else if (d < primaryRange * 0.4) {
-          // Back off
+        if (d > primaryRange * 0.9) {
+          // Angled approach — never charge straight on
+          const baseAng = angleToward(ship.x, ship.y, target.x, target.y);
+          const offset = (Math.random() - 0.5) * 0.9;
+          clampedMove(
+            target.x - Math.sin(baseAng + offset) * primaryRange * 0.62,
+            target.y + Math.cos(baseAng + offset) * primaryRange * 0.62
+          );
+          ship.aiState = 'approach';
+          ship.aiTimer = 1.4 + Math.random();
+        } else if (d < primaryRange * 0.32) {
+          // Back off while firing — don't let player get close
           const ang = angleToward(target.x, target.y, ship.x, ship.y);
-          ship.setMoveTarget(ship.x + Math.sin(ang)*120, ship.y - Math.cos(ang)*120);
+          const perp = ang + Math.PI/2 * (Math.random() > 0.5 ? 1 : -1);
+          clampedMove(
+            ship.x + Math.sin(ang)*200 + Math.sin(perp)*70,
+            ship.y - Math.cos(ang)*200 - Math.cos(perp)*70
+          );
+          ship.aiTimer = 1.8 + Math.random();
         } else {
-          // Strafe
-          const perpAngle = angleToward(ship.x, ship.y, target.x, target.y) + Math.PI/2;
-          ship.setMoveTarget(ship.x + Math.sin(perpAngle)*100, ship.y - Math.cos(perpAngle)*100);
+          // Strafe at optimal range — orbit direction reverses unpredictably
+          const orbitDir = (Math.floor(ship.aiTimer * 10) % 2 === 0) ? 1 : -1;
+          const perpAng = angleToward(ship.x, ship.y, target.x, target.y) + Math.PI/2 * orbitDir;
+          clampedMove(
+            ship.x + Math.sin(perpAng) * 140,
+            ship.y - Math.cos(perpAng) * 140
+          );
+          ship.aiTimer = 1.0 + Math.random() * 0.8;
         }
-        ship.aiTimer = 1.5 + Math.random();
+        // Dive when shields are low to break line of sight
+        if (shieldPct < 0.3) {
+          ship.setDepthTarget(prefDepth + 120 + Math.random() * 80);
+        } else {
+          ship.setDepthTarget(prefDepth + (Math.random()-0.5) * 60);
+        }
       }
       break;
     }
+
+    // ── DEFENSIVE (Shard Fortress / Behemoth) ────────────────────
     case 'defensive': {
+      if (ship.aiState === 'retreat') {
+        // Fortress pulls back to max range and continues to fire
+        const ang = angleToward(target.x, target.y, ship.x, ship.y);
+        clampedMove(ship.x + Math.sin(ang)*350, ship.y - Math.cos(ang)*350);
+        ship.setDepthTarget(Math.min(WORLD_DEPTH - 30, prefDepth + 120));
+        break;
+      }
       if (ship.aiTimer <= 0) {
-        // Stay at range, adjust position
-        if (d < primaryRange * 0.6) {
+        if (d > primaryRange * 1.2) {
+          // Slowly advance — lure player to charge
+          clampedMove(
+            target.x + (Math.random()-0.5)*120,
+            target.y + (Math.random()-0.5)*120
+          );
+          ship.aiTimer = 3.5 + Math.random() * 2.0;
+        } else if (d < primaryRange * 0.48) {
+          // Push them back
           const ang = angleToward(target.x, target.y, ship.x, ship.y);
-          ship.setMoveTarget(ship.x + Math.sin(ang)*150, ship.y - Math.cos(ang)*150);
-        } else if (d > primaryRange * 1.1) {
-          ship.setMoveTarget(target.x + (Math.random()-0.5)*80, target.y + (Math.random()-0.5)*80);
+          clampedMove(ship.x + Math.sin(ang)*200, ship.y - Math.cos(ang)*200);
+          ship.aiTimer = 2.0 + Math.random();
         } else {
-          // Orbit slowly
-          const ang = angleToward(ship.x, ship.y, target.x, target.y) + Math.PI/2 * (Math.random() > 0.5 ? 1 : -1);
-          ship.setMoveTarget(ship.x + Math.sin(ang)*80, ship.y - Math.cos(ang)*80);
+          // Hold and rotate — punishing fire arc
+          const side = Math.sin(Date.now() * 0.0003 + ship.id) > 0 ? 1 : -1;
+          const perpAng = angleToward(ship.x, ship.y, target.x, target.y) + Math.PI/2 * side;
+          clampedMove(
+            ship.x + Math.sin(perpAng) * 80,
+            ship.y - Math.cos(perpAng) * 80
+          );
+          ship.aiTimer = 4.0 + Math.random() * 2.0;
         }
-        ship.aiTimer = 2.0 + Math.random() * 1.5;
+        ship.setDepthTarget(prefDepth + (Math.random()-0.5) * 40);
       }
       break;
     }
+
+    // ── LEVIATHAN (ancient predator) ─────────────────────────────
     case 'leviathan': {
-      // Always move toward nearest target
-      ship.setMoveTarget(target.x + (Math.random()-0.5)*40, target.y + (Math.random()-0.5)*40);
+      if (ship.aiState === 'retreat') {
+        // Wounded leviathans dive to the abyss and circle — they never truly flee
+        ship.setDepthTarget(WORLD_DEPTH * 0.85);
+        const circleAng = angleToward(ship.x, ship.y, target.x, target.y) + Math.PI * 0.6;
+        clampedMove(ship.x + Math.sin(circleAng)*350, ship.y - Math.cos(circleAng)*350);
+        break;
+      }
+      // Always prioritise flagship
+      const flagship = alive.find(s => s.isFlagship);
+      if (flagship) ship.attackTarget = flagship;
+
+      if (ship.aiTimer <= 0) {
+        if (d > primaryRange * 1.4) {
+          // Dive and close from depth — ambush run
+          ship.setDepthTarget(WORLD_DEPTH * 0.65 + Math.random() * 60);
+          clampedMove(target.x + (Math.random()-0.5)*100, target.y + (Math.random()-0.5)*100);
+          ship.aiTimer = 3.0 + Math.random() * 1.5;
+        } else if (depthGap > 160) {
+          // Surface to match target depth — the "rise from below" moment
+          ship.setDepthTarget(target.depth + 20 + Math.random() * 40);
+          ship.aiTimer = 2.0;
+        } else {
+          // Slow powerful arc — circle around at attack range
+          const baseAng = angleToward(ship.x, ship.y, target.x, target.y);
+          const orbitAng = baseAng + Math.PI/3;
+          clampedMove(
+            target.x - Math.sin(orbitAng) * primaryRange * 0.8,
+            target.y + Math.cos(orbitAng) * primaryRange * 0.8
+          );
+          ship.aiTimer = 3.5 + Math.random() * 2.0;
+        }
+      }
       break;
     }
   }
@@ -930,6 +1083,55 @@ class CombatEngine {
 
     // Completion check
     this._checkCompletion();
+
+    // ── Radar/sonar detection update ───────────────────────────────
+    this._updateDetection(dt);
+  }
+
+  _updateDetection(dt) {
+    const playerAlive = this.playerShips.filter(s => !s.isDestroyed);
+
+    // Sonar ping timers on player ships (generate ping events for renderer)
+    for (const ps of playerAlive) {
+      ps.sonarPingTimer -= dt;
+      if (ps.sonarPingTimer <= 0) {
+        ps.sonarPingTimer = SONAR_PING_INTERVAL;
+        // Notify renderer via a ping event
+        this.sonarPings = this.sonarPings || [];
+        this.sonarPings.push({ x: ps.x, y: ps.y, depth: ps.depth, range: ps.detectRange, timer: 1.0 });
+      }
+    }
+    // Decay ping timer list
+    if (this.sonarPings) this.sonarPings = this.sonarPings.filter(p => p.timer > 0);
+
+    for (const enemy of this.enemyShips) {
+      if (enemy.isDestroyed) { enemy.detectionLevel = 0; continue; }
+
+      let bestContact = 0, bestIdentify = 0;
+
+      for (const ps of playerAlive) {
+        // Depth penalty: harder to detect when enemy is much deeper
+        const depthDiff = Math.abs(ps.depth - enemy.depth);
+        const depthFactor = 1 - DETECT_DEPTH_PENALTY * (depthDiff / WORLD_DEPTH);
+        // EW jamming reduces player's effective detect range
+        const ewPenalty = (ps.ewJammedTimer > 0) ? 0.6 : 1.0;
+        // Enemy stealth reduces detection range
+        const stealthFactor = 1 - (enemy.stealthRating || 0) / 100;
+
+        const effectiveRange = ps.detectRange * depthFactor * ewPenalty * stealthFactor;
+        const d = dist(ps.x, ps.y, enemy.x, enemy.y);
+
+        if (d < effectiveRange * DETECT_RANGE_CONTACT)  bestContact  = 1;
+        if (d < effectiveRange * DETECT_RANGE_IDENTIFY) bestIdentify = 1;
+      }
+
+      // Detection only goes UP (never lose identification mid-combat once seen)
+      const newLevel = bestIdentify ? 2 : bestContact ? 1 : 0;
+      if (newLevel > enemy.detectionLevel) enemy.detectionLevel = newLevel;
+
+      // If identified, AI can properly target; if only contact, AI uses approximate position
+      // (full targeting is already possible once identified)
+    }
   }
 
   // Input from game

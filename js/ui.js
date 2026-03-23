@@ -63,22 +63,31 @@ class UIManager {
     const back = document.getElementById('btn-settings-back');
     if (back) back.addEventListener('click', () => { audio.play('ui_click'); this.showScreen('menu'); });
 
-    const bindSlider = (id, fn) => {
-      const el = document.getElementById(id);
+    const bindSlider = (id, valId, fn) => {
+      const el    = document.getElementById(id);
+      const valEl = document.getElementById(valId);
       if (!el) return;
-      el.addEventListener('input', () => fn(parseInt(el.value) / 100));
+      el.addEventListener('input', () => {
+        const v = parseInt(el.value) / 100;
+        fn(v);
+        if (valEl) valEl.textContent = el.value + '%';
+      });
     };
-    bindSlider('vol-master', v => audio.setMasterVol(v));
-    bindSlider('vol-music',  v => audio.setMusicVol(v));
-    bindSlider('vol-fx',     v => audio.setFxVol(v));
+    bindSlider('vol-master', 'vol-master-val', v => audio.setMasterVol(v));
+    bindSlider('vol-music',  'vol-music-val',  v => audio.setMusicVol(v));
+    bindSlider('vol-fx',     'vol-fx-val',     v => audio.setFxVol(v));
   }
 
   showSettings() {
-    // Sync sliders to current audio prefs before showing
-    const sync = (id, val) => { const e = document.getElementById(id); if (e) e.value = Math.round(val * 100); };
-    sync('vol-master', audio.masterVol);
-    sync('vol-music',  audio.musicVol);
-    sync('vol-fx',     audio.fxVol);
+    // Sync sliders and labels to current audio prefs before showing
+    const sync = (id, valId, val) => {
+      const pct = Math.round(val * 100);
+      const e = document.getElementById(id); if (e) e.value = pct;
+      const v = document.getElementById(valId); if (v) v.textContent = pct + '%';
+    };
+    sync('vol-master', 'vol-master-val', audio.masterVol);
+    sync('vol-music',  'vol-music-val',  audio.musicVol);
+    sync('vol-fx',     'vol-fx-val',     audio.fxVol);
     this.showScreen('settings');
   }
 
@@ -335,7 +344,7 @@ class UIManager {
           ${s.maxShields > 0 ? `<div class="icon-bar shield" style="width:${(sp*100).toFixed(0)}%"></div>` : ''}
           <div class="icon-bar hull" style="width:${(hp*100).toFixed(0)}%"></div>
         </div>`;
-      div.addEventListener('click', () => combat.selectShip(s));
+      div.addEventListener('click', () => { combat.selectShip(s); this.game.focusCamera(s); });
       hudFleet.appendChild(div);
     }
 
@@ -378,23 +387,27 @@ class UIManager {
     }
 
     // Depth gauge on right side
-    const depthGauge = document.getElementById('depth-gauge-fill');
-    if (depthGauge && sel && !sel.isDestroyed) {
+    const gaugeFill   = document.getElementById('depth-gauge-fill');
+    const gaugeMarker = document.getElementById('depth-gauge-marker');
+    const gaugeVal    = document.getElementById('depth-gauge-val');
+    if (sel && !sel.isDestroyed) {
       const pct = ((sel.depth || 0) / WORLD_DEPTH * 100).toFixed(1);
-      depthGauge.style.height = pct + '%';
+      if (gaugeFill)   gaugeFill.style.height = pct + '%';
+      if (gaugeMarker) gaugeMarker.style.top   = pct + '%';
+      if (gaugeVal)    gaugeVal.textContent = Math.round(sel.depth || 0) + 'm';
     }
 
     // Order hint
     const hint = document.getElementById('order-hint');
     if (combat.paused) {
       hint.textContent = sel && !sel.isDestroyed
-        ? 'PAUSED — Click ocean: move · Click enemy: attack · Q/E: depth'
+        ? 'PAUSED — Click: move/attack · Q/E: depth · Right-drag or [/]: orbit camera'
         : 'PAUSED — Select a ship to issue orders';
       hint.classList.add('active');
     } else {
       hint.textContent = sel && !sel.isDestroyed
-        ? 'Click ocean: move · Click enemy: attack · Q/E: depth · SPACE: pause'
-        : 'Select a ship · SPACE to pause';
+        ? 'Click: move/attack · Q/E: depth · Right-drag: orbit · Scroll: zoom · SPACE: pause'
+        : 'Click a ship to select · SPACE to pause';
       hint.classList.remove('active');
     }
 
@@ -402,6 +415,18 @@ class UIManager {
     const t = Math.floor(combat.time);
     document.getElementById('combat-timer').textContent =
       `${Math.floor(t/60).toString().padStart(2,'0')}:${(t%60).toString().padStart(2,'0')}`;
+
+    // Radar contact summary
+    const alive    = combat.enemyShips.filter(s => !s.isDestroyed);
+    const contacts = alive.filter(s => s.detectionLevel === 1).length;
+    const unknown  = alive.filter(s => s.detectionLevel === 0).length;
+    const identified = alive.filter(s => s.detectionLevel === 2).length;
+    const radarEl = document.getElementById('radar-status');
+    if (radarEl) {
+      radarEl.textContent = identified > 0 || contacts > 0
+        ? `CONTACTS: ${identified} ID'd · ${contacts} blip${contacts !== 1 ? 's' : ''} · ${unknown} unknown`
+        : unknown > 0 ? `${unknown} UNDETECTED CONTACTS` : '';
+    }
   }
 
   // ── Post-Combat Rewards ───────────────────────────────────────
@@ -494,43 +519,150 @@ class UIManager {
   // ── Store Screen ──────────────────────────────────────────────
   showStore(campaign, onDone) {
     this.showScreen('store');
-    document.getElementById('store-credits').textContent = campaign.credits;
+    const refreshCredits = () => document.getElementById('store-credits').textContent = campaign.credits;
+    refreshCredits();
 
-    const inventory = [...UPGRADE_POOL].sort(() => Math.random() - 0.5).slice(0, 6);
-    const container = document.getElementById('store-items');
-    container.innerHTML = '';
-
-    for (const item of inventory) {
-      const div = document.createElement('div');
-      div.className = 'store-item';
-      const canAfford = campaign.credits >= item.cost;
-      div.innerHTML = `
-        <div class="item-name">${item.name}</div>
-        <div class="item-desc">${item.desc}</div>
-        <div class="item-cost ${canAfford ? '' : 'cant-afford'}">⬡ ${item.cost}</div>
-        <div class="item-ships"></div>`;
-      const shipArea = div.querySelector('.item-ships');
-      for (const sd of campaign.playerFleetData) {
-        const btn = document.createElement('button');
-        btn.className = 'btn-sm-ship';
-        btn.textContent = sd.name.replace('INS ', '');
-        btn.disabled = !canAfford;
-        btn.onclick = () => {
-          if (campaign.buyUpgrade(item, sd.name)) {
-            document.getElementById('store-credits').textContent = campaign.credits;
-            btn.textContent = '✓';
-            btn.disabled = true;
-            div.querySelectorAll('.btn-sm-ship').forEach(b => {
-              if (campaign.credits < item.cost) b.disabled = true;
-            });
-          }
-        };
-        shipArea.appendChild(btn);
-      }
-      container.appendChild(div);
+    // Inventory rolls once per visit
+    if (!this._storeInventory) {
+      this._storeInventory = {
+        upgrades: [...UPGRADE_POOL].sort(() => Math.random() - 0.5).slice(0, 5),
+        modules:  Object.values(MODULE_DATA).sort(() => Math.random() - 0.5).slice(0, 8),
+      };
     }
 
-    document.getElementById('btn-store-leave').onclick = () => { campaign.save(); onDone(); };
+    const renderStore = (tab) => {
+      const container = document.getElementById('store-items');
+      container.innerHTML = '';
+      // Tab buttons
+      const tabs = document.getElementById('store-tabs');
+      if (tabs) tabs.querySelectorAll('.store-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+
+      if (tab === 'upgrades') {
+        for (const item of this._storeInventory.upgrades) {
+          container.appendChild(this._makeStoreItem(item, campaign, refreshCredits));
+        }
+      } else if (tab === 'modules') {
+        for (const mod of this._storeInventory.modules) {
+          container.appendChild(this._makeModuleItem(mod, campaign, refreshCredits));
+        }
+      } else if (tab === 'recruit') {
+        this._renderRecruitTab(container, campaign, refreshCredits);
+      }
+    };
+
+    const tabs = document.getElementById('store-tabs');
+    if (tabs) {
+      tabs.querySelectorAll('.store-tab').forEach(btn => {
+        btn.onclick = () => renderStore(btn.dataset.tab);
+      });
+    }
+    renderStore('upgrades');
+
+    document.getElementById('btn-store-leave').onclick = () => {
+      this._storeInventory = null; // reset for next visit
+      campaign.save();
+      onDone();
+    };
+  }
+
+  _makeStoreItem(item, campaign, refresh) {
+    const div = document.createElement('div');
+    div.className = 'store-item';
+    const canAfford = campaign.credits >= item.cost;
+    div.innerHTML = `
+      <div class="item-name">${item.name}</div>
+      <div class="item-desc">${item.desc}</div>
+      <div class="item-cost ${canAfford ? '' : 'cant-afford'}">⬡ ${item.cost}</div>
+      <div class="item-ships"></div>`;
+    const shipArea = div.querySelector('.item-ships');
+    for (const sd of campaign.playerFleetData) {
+      const btn = document.createElement('button');
+      btn.className = 'btn-sm-ship';
+      btn.textContent = sd.name.replace('INS ', '');
+      btn.disabled = !canAfford;
+      btn.onclick = () => {
+        if (campaign.buyUpgrade(item, sd.name)) {
+          refresh();
+          btn.textContent = '✓'; btn.disabled = true;
+          div.querySelectorAll('.btn-sm-ship').forEach(b => { if (campaign.credits < item.cost) b.disabled = true; });
+        }
+      };
+      shipArea.appendChild(btn);
+    }
+    return div;
+  }
+
+  _makeModuleItem(mod, campaign, refresh) {
+    const div = document.createElement('div');
+    div.className = 'store-item module-item';
+    const catColor = { weapon:'#ff6e40', defense:'#40c4ff', system:'#69f0ae' }[mod.category] || '#aaa';
+    div.innerHTML = `
+      <div class="item-name"><span style="color:${catColor}">${mod.icon || ''} ${mod.name}</span></div>
+      <div class="item-cat" style="color:${catColor};font-size:10px;text-transform:uppercase;letter-spacing:1px">${mod.category}</div>
+      <div class="item-desc">${mod.desc}</div>
+      <div class="item-cost ${campaign.credits >= mod.cost ? '' : 'cant-afford'}">⬡ ${mod.cost}</div>
+      <div class="item-ships module-ships"></div>`;
+    const shipArea = div.querySelector('.item-ships');
+    for (const sd of campaign.playerFleetData) {
+      const { slots, used } = campaign.getShipModuleSlots(sd);
+      const slotsLeft = (slots[mod.category] || 0) - (used[mod.category] || 0);
+      const btn = document.createElement('button');
+      btn.className = 'btn-sm-ship';
+      btn.textContent = sd.name.replace('INS ', '');
+      btn.title = `${slotsLeft} ${mod.category} slot${slotsLeft !== 1 ? 's' : ''} free`;
+      btn.disabled = campaign.credits < mod.cost || slotsLeft <= 0;
+      if (slotsLeft <= 0) btn.style.opacity = '0.4';
+      btn.onclick = () => {
+        const result = campaign.buyModule(mod, sd.name);
+        if (result.ok) {
+          refresh();
+          btn.textContent = '✓'; btn.disabled = true;
+        } else {
+          btn.title = result.reason;
+          btn.style.borderColor = '#ff1744';
+        }
+      };
+      shipArea.appendChild(btn);
+    }
+    return div;
+  }
+
+  _renderRecruitTab(container, campaign, refresh) {
+    // Fleet size indicator
+    const sizeDiv = document.createElement('div');
+    sizeDiv.className = 'store-fleet-size';
+    sizeDiv.textContent = `Fleet: ${campaign.playerFleetData.length} / ${MAX_FLEET_SIZE} ships`;
+    container.appendChild(sizeDiv);
+
+    for (const rec of RECRUITABLE_SHIPS) {
+      const tpl = SHIP_TEMPLATES[rec.templateId];
+      if (!tpl) continue;
+      const slots = MODULE_SLOTS[rec.templateId] || {};
+      const canAfford = campaign.credits >= rec.cost;
+      const atMax = campaign.playerFleetData.length >= MAX_FLEET_SIZE;
+      const div = document.createElement('div');
+      div.className = 'store-item recruit-item';
+      div.innerHTML = `
+        <div class="item-name">${tpl.name} <span class="ship-class-tag">${tpl.shipClass}</span></div>
+        <div class="item-desc">${tpl.desc}</div>
+        <div class="recruit-slots">
+          <span title="Weapon slots">⦿ ×${slots.weapon||0}</span>
+          <span title="Defense slots">◈ ×${slots.defense||0}</span>
+          <span title="System slots">⚡ ×${slots.system||0}</span>
+        </div>
+        <div class="item-cost ${canAfford ? '' : 'cant-afford'}">⬡ ${rec.cost}</div>
+        <button class="btn-recruit" ${(!canAfford || atMax) ? 'disabled' : ''}>${atMax ? 'FLEET FULL' : 'RECRUIT'}</button>`;
+      div.querySelector('.btn-recruit').onclick = () => {
+        const result = campaign.recruitShip(rec.templateId, rec.cost);
+        if (result.ok) {
+          refresh();
+          sizeDiv.textContent = `Fleet: ${campaign.playerFleetData.length} / ${MAX_FLEET_SIZE} ships`;
+          div.querySelector('.btn-recruit').textContent = `✓ ${result.name}`;
+          div.querySelector('.btn-recruit').disabled = true;
+        }
+      };
+      container.appendChild(div);
+    }
   }
 
   // ── Fleet Screen ──────────────────────────────────────────────
@@ -547,6 +679,15 @@ class UIManager {
       div.className = 'fleet-ship-card';
       const hp = (sd.hull / sd.maxHull * 100).toFixed(0);
       const sp = sd.maxShields > 0 ? (sd.shields / sd.maxShields * 100).toFixed(0) : 0;
+      const { slots, used } = campaign.getShipModuleSlots(sd);
+      const slotSummary = Object.entries(slots).map(([cat, n]) => {
+        const u = used[cat] || 0;
+        return `<span title="${cat}">${cat[0].toUpperCase()} ${u}/${n}</span>`;
+      }).join(' · ');
+      const moduleTags = (sd.modules || []).map(mid => {
+        const mod = MODULE_DATA[mid];
+        return mod ? `<span class="module-tag">${mod.icon || ''} ${mod.name}</span>` : '';
+      }).join('');
       div.innerHTML = `
         <div class="fc-name${sd.isFlagship ? ' flagship' : ''}">${sd.name}${sd.isFlagship ? ' ★' : ''}</div>
         <div class="fc-class">${tpl.shipClass || ''} · Lv ${sd.level || 1}</div>
@@ -554,12 +695,14 @@ class UIManager {
           <div class="fc-bar-row"><span>HULL</span><div class="fc-bar"><div class="fill hull" style="width:${hp}%"></div></div><span>${sd.hull}/${sd.maxHull}</span></div>
           ${sd.maxShields > 0 ? `<div class="fc-bar-row"><span>SHLD</span><div class="fc-bar"><div class="fill shield" style="width:${sp}%"></div></div><span>${sd.shields}/${sd.maxShields}</span></div>` : ''}
         </div>
-        <div class="fc-stats"><span>SPD ${sd.maxSpeed}</span><span>ARM ${sd.armor}</span><span>XP ${sd.xp || 0}</span></div>
-        <div class="fc-upgrades">${(sd.upgrades||[]).map(u=>`<span class="upg-tag">${u.replace(/_/g,' ')}</span>`).join('')}</div>`;
+        <div class="fc-stats"><span>SPD ${sd.maxSpeed}</span><span>ARM ${sd.armor}</span><span>DET ${sd.detectRange||400}</span></div>
+        <div class="module-slots-row">SLOTS: ${slotSummary}</div>
+        <div class="fc-upgrades">${moduleTags}${(sd.upgrades||[]).map(u=>`<span class="upg-tag">${u.replace(/_/g,' ')}</span>`).join('')}</div>`;
       div.onclick = () => {
         list.querySelectorAll('.fleet-ship-card').forEach(c => c.classList.remove('selected'));
         div.classList.add('selected');
-        detail.innerHTML = `<p style="margin-top:12px;font-size:13px;color:#7aa0c0;">${tpl.desc || ''}</p>`;
+        detail.innerHTML = `<p style="margin-top:12px;font-size:13px;color:#7aa0c0;">${tpl.desc || ''}</p>
+          <div style="font-size:11px;color:#556;margin-top:8px">Weapons: ${tpl.weapons?.join(', ') || 'none'}</div>`;
       };
       list.appendChild(div);
     }

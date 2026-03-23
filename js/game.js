@@ -157,8 +157,11 @@ class Game {
       switch (cmd.type) {
         case CmdType.MOVE:
           const ms = this.combat.playerShips.find(s => s.id === cmd.data.shipId);
-          if (ms) ms.setMoveTarget(cmd.data.x, cmd.data.y);
-          this.combat.moveMarker = { x: cmd.data.x, y: cmd.data.y, timer: 1.5 };
+          if (ms) {
+            ms.setMoveTarget(cmd.data.x, cmd.data.y);
+            ms.setDepthTarget(cmd.data.depth);
+          }
+          this.combat.moveMarker = { x: cmd.data.x, y: cmd.data.y, depth: cmd.data.depth, timer: 1.5 };
           break;
         case CmdType.ATTACK:
           const as = this.combat.playerShips.find(s => s.id === cmd.data.shipId);
@@ -263,11 +266,20 @@ class Game {
     this.renderer.buildTerrain(this.combat.terrain);
     this._accum = 0;
 
+    // Snap camera to fleet center immediately (don't wait for lerp)
+    const alive = this.combat.playerShips;
+    if (alive.length > 0) {
+      let cx = 0, cy = 0;
+      for (const s of alive) { cx += s.x; cy += s.y; }
+      cx /= alive.length; cy /= alive.length;
+      this.renderer.camTarget.set(this.renderer.wx(cx), 0, this.renderer.wz(cy));
+    }
+
     this.ui.showCombatHUD();
     this.setState(GS.COMBAT);
     this.combat.paused = true;
     audio.playMusic('combat');
-    setTimeout(() => { if (this.combat) this.combat.paused = false; }, 2000);
+    setTimeout(() => { if (this.combat) this.combat.paused = false; }, 1500);
   }
 
   // Adjust depth of selected ship (positive = dive, negative = ascend)
@@ -281,6 +293,15 @@ class Game {
     if (this.combat.moveMarker) this.combat.moveMarker.depth = sel.targetDepth;
     // Update renderer click plane
     this.renderer.clickPlaneY = -sel.targetDepth;
+  }
+
+  focusCamera(ship) {
+    if (!ship || !this.renderer) return;
+    this.renderer.camTarget.set(
+      this.renderer.wx(ship.x),
+      -(ship.depth || 0),
+      this.renderer.wz(ship.y)
+    );
   }
 
   togglePause() {
@@ -351,6 +372,9 @@ class Game {
       // Depth controls: Q = ascend, E = dive
       if (e.key === 'q' || e.key === 'Q') this.adjustDepth(-60);
       if (e.key === 'e' || e.key === 'E') this.adjustDepth(60);
+      // Camera orbit: [ = rotate left, ] = rotate right
+      if (e.key === '[') this.renderer.orbitCamera(-0.15);
+      if (e.key === ']') this.renderer.orbitCamera( 0.15);
     });
     window.addEventListener('keyup', e => { this._keys[e.key] = false; });
 
@@ -363,22 +387,20 @@ class Game {
       this.renderer.zoomCamera(e.deltaY);
     }, { passive: false });
 
-    // Mouse drag pan
-    let isDragging = false, dragX = 0, dragY = 0;
+    // Mouse drag — middle=pan, right=orbit
+    let dragMode = null, dragX = 0, dragY = 0;
     c.addEventListener('mousedown', e => {
-      if (e.button === 1 || e.button === 2) { isDragging = true; dragX = e.clientX; dragY = e.clientY; }
+      if (e.button === 1) { dragMode = 'pan';   dragX = e.clientX; dragY = e.clientY; }
+      if (e.button === 2) { dragMode = 'orbit'; dragX = e.clientX; dragY = e.clientY; }
     });
     c.addEventListener('mousemove', e => {
-      if (isDragging && this.state === GS.COMBAT) {
-        this.renderer.panCamera((dragX - e.clientX) * 1.2, (dragY - e.clientY) * 1.2);
-        dragX = e.clientX; dragY = e.clientY;
-      }
-      // Campaign map hover
-      if (this.state === GS.CAMPAIGN) {
-        this.ui.handleCampaignHover(e.clientX, e.clientY, this.renderer);
-      }
+      if (!dragMode || this.state !== GS.COMBAT) return;
+      const dx = dragX - e.clientX, dy = dragY - e.clientY;
+      if (dragMode === 'pan')   this.renderer.panCamera(dx * 1.2, dy * 1.2);
+      if (dragMode === 'orbit') this.renderer.orbitCamera(-dx * 0.004);
+      dragX = e.clientX; dragY = e.clientY;
     });
-    c.addEventListener('mouseup', () => { isDragging = false; });
+    c.addEventListener('mouseup', () => { dragMode = null; });
     c.addEventListener('contextmenu', e => e.preventDefault());
 
     // Touch events (mobile)
@@ -390,9 +412,8 @@ class Game {
   _handleCanvasClick(cx, cy) {
     if (this.state === GS.COMBAT && this.combat) {
       this._handleCombatClick(cx, cy);
-    } else if (this.state === GS.CAMPAIGN) {
-      this.ui.handleCampaignClick(cx, cy, this.renderer);
     }
+    // Campaign clicks are handled via HTML node element listeners
   }
 
   _handleCombatClick(cx, cy) {

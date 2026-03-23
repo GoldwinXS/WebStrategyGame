@@ -37,12 +37,52 @@
           <button class="btn-primary" id="btn-new-run">NEW RUN</button>
           <button class="btn-secondary" id="btn-continue">CONTINUE RUN</button>
           <button class="btn-ghost" id="btn-how-to-play">HOW TO PLAY</button>
+          <button class="btn-ghost" id="btn-settings">SETTINGS</button>
         </div>
         <div class="lore-text">
           <p>Year 2387. Colony vessel <em>Heraklion</em> drops from FTL above Pelagos Prime — an ocean world uncharted and hostile. The drive core is gone. The rescue beacon awaits at the polar axis, three sectors away.</p>
           <p>The seas are not empty.</p>
         </div>
         <div id="save-info" class="save-info"></div>
+      </div>
+    </div>
+
+    <!-- ── SETTINGS ──────────────────────────────── -->
+    <div id="screen-settings" class="screen">
+      <div class="screen-panel settings-panel">
+        <h2>SETTINGS</h2>
+
+        <h3>AUDIO</h3>
+        <div class="settings-group">
+          <div class="vol-row">
+            <label class="vol-label" for="vol-master">MASTER</label>
+            <input type="range" id="vol-master" class="vol-slider" min="0" max="100" step="1" value="80">
+            <span class="vol-val" id="vol-master-val">80%</span>
+          </div>
+          <div class="vol-row">
+            <label class="vol-label" for="vol-music">MUSIC</label>
+            <input type="range" id="vol-music" class="vol-slider" min="0" max="100" step="1" value="60">
+            <span class="vol-val" id="vol-music-val">60%</span>
+          </div>
+          <div class="vol-row">
+            <label class="vol-label" for="vol-fx">FX</label>
+            <input type="range" id="vol-fx" class="vol-slider" min="0" max="100" step="1" value="70">
+            <span class="vol-val" id="vol-fx-val">70%</span>
+          </div>
+        </div>
+
+        <h3>CONTROLS</h3>
+        <div class="settings-group controls-help">
+          <div class="ctrl-row"><span class="ctrl-key">CLICK</span><span class="ctrl-desc">Select / Move / Target</span></div>
+          <div class="ctrl-row"><span class="ctrl-key">SPACE</span><span class="ctrl-desc">Tactical pause</span></div>
+          <div class="ctrl-row"><span class="ctrl-key">Q / E</span><span class="ctrl-desc">Ascend / Descend depth</span></div>
+          <div class="ctrl-row"><span class="ctrl-key">SCROLL</span><span class="ctrl-desc">Zoom camera</span></div>
+          <div class="ctrl-row"><span class="ctrl-key">MID-DRAG</span><span class="ctrl-desc">Pan camera</span></div>
+        </div>
+
+        <div class="screen-footer">
+          <button class="btn-primary" id="btn-settings-back">BACK</button>
+        </div>
       </div>
     </div>
 
@@ -58,6 +98,8 @@
               <li><strong>Click / Tap ocean</strong> — Move selected ship</li>
               <li><strong>Click / Tap enemy</strong> — Set as attack target</li>
               <li><strong>SPACE or ⏸ button</strong> — Tactical pause</li>
+              <li><strong>Q / ▲ button</strong> — Ascend (shallower)</li>
+              <li><strong>E / ▼ button</strong> — Descend (deeper)</li>
               <li>Ships <em>auto-fire</em> at their assigned target</li>
               <li>Scroll / pinch to zoom · middle-drag to pan</li>
             </ul>
@@ -158,9 +200,14 @@
 
     <!-- ── STORE SCREEN ───────────────────────────── -->
     <div id="screen-store" class="screen">
-      <div class="screen-panel">
+      <div class="screen-panel store-panel">
         <h2>SUPPLY DEPOT</h2>
         <p class="dim">Salvage traders operating in the deep. No questions asked.</p>
+        <div id="store-tabs" class="store-tabs">
+          <button class="store-tab active" data-tab="upgrades">UPGRADES</button>
+          <button class="store-tab" data-tab="modules">MODULES</button>
+          <button class="store-tab" data-tab="recruit">RECRUIT</button>
+        </div>
         <div id="store-items" class="store-grid"></div>
         <div class="screen-footer">
           <span class="res-credits">⬡ <strong id="store-credits">0</strong></span>
@@ -204,9 +251,28 @@
         </div>
         <div class="hud-right">
           <div id="combat-timer" class="combat-timer">00:00</div>
+          <div id="radar-status" class="radar-status"></div>
         </div>
       </div>
       <div id="hud-selected-info" class="hud-selected"></div>
+
+      <!-- Depth gauge — right edge, vertical bar -->
+      <div class="depth-gauge-container" id="depth-gauge">
+        <div class="depth-gauge-label">SURFACE</div>
+        <div class="depth-gauge-track">
+          <div class="depth-gauge-fill" id="depth-gauge-fill"></div>
+          <div class="depth-gauge-marker" id="depth-gauge-marker"></div>
+        </div>
+        <div class="depth-gauge-label">ABYSS</div>
+        <div class="depth-gauge-val" id="depth-gauge-val">0m</div>
+      </div>
+
+      <!-- Depth controls — right edge below gauge -->
+      <div class="depth-controls" id="depth-controls">
+        <button class="btn-depth" id="btn-depth-up" title="Ascend (Q)">&#9650;</button>
+        <button class="btn-depth" id="btn-depth-dn" title="Descend (E)">&#9660;</button>
+      </div>
+
       <div class="hud-bottom">
         <div id="order-hint" class="order-hint">Select a ship · SPACE to pause</div>
         <div class="hud-btns">
@@ -272,6 +338,7 @@
   <script src="js/engine.js"></script>
   <script src="js/campaign.js"></script>
   <script src="js/render.js"></script>
+  <script src="js/audio.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/game.js"></script>
 </body>

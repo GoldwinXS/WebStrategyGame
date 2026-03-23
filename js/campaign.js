@@ -287,6 +287,89 @@ class Campaign {
     return true;
   }
 
+  // ── Module system ─────────────────────────────────────────────
+  getShipModuleSlots(sd) {
+    const slots = MODULE_SLOTS[sd.templateId] || { weapon:1, defense:1, system:1 };
+    const used  = { weapon:0, defense:0, system:0 };
+    for (const modId of (sd.modules || [])) {
+      const mod = MODULE_DATA[modId];
+      if (mod) used[mod.category] = (used[mod.category] || 0) + 1;
+    }
+    return { slots, used };
+  }
+
+  buyModule(mod, targetShipName) {
+    if (this.credits < mod.cost) return { ok:false, reason:'Not enough credits' };
+    if (this.playerFleetData.length === 0) return { ok:false, reason:'No ships' };
+    const sd = this.playerFleetData.find(d => d.name === targetShipName);
+    if (!sd) return { ok:false, reason:'Ship not found' };
+    const { slots, used } = this.getShipModuleSlots(sd);
+    if ((used[mod.category] || 0) >= (slots[mod.category] || 0))
+      return { ok:false, reason:`No ${mod.category} slots remaining` };
+
+    // Apply module effects
+    const ship = Ship.fromSaveData(sd);
+    if (!ship) return { ok:false, reason:'Cannot load ship' };
+    mod.apply(ship);
+    // Sync stats back
+    sd.hull       = ship.hull;
+    sd.maxHull    = ship.maxHull;
+    sd.shields    = ship.shields;
+    sd.maxShields = ship.maxShields;
+    sd.shieldRate = ship.shieldRate;
+    sd.armor      = ship.armor;
+    sd.maxSpeed   = ship.maxSpeed;
+    sd.depthRate  = ship.depthRate;
+    sd.ewStrength = ship.ewStrength;
+    sd.detectRange= ship.detectRange;
+    sd.stealthRating = ship.stealthRating;
+    sd.hullRegen  = ship.hullRegen;
+    sd.modules    = sd.modules || [];
+    sd.modules.push(mod.id);
+    // Persist weapon changes via weaponIds list
+    sd.weaponIds  = ship.weapons.map(w => w.id);
+
+    this.credits -= mod.cost;
+    return { ok:true };
+  }
+
+  // ── Recruit new ships ──────────────────────────────────────────
+  recruitShip(templateId, cost) {
+    if (this.credits < cost) return { ok:false, reason:'Not enough credits' };
+    if (this.playerFleetData.length >= MAX_FLEET_SIZE)
+      return { ok:false, reason:`Fleet at max size (${MAX_FLEET_SIZE})` };
+    const tpl = SHIP_TEMPLATES[templateId];
+    if (!tpl) return { ok:false, reason:'Unknown ship type' };
+
+    // Pick a unique name
+    const usedNames = new Set(this.playerFleetData.map(s => s.name));
+    let shipName = '';
+    for (const n of SHIP_NAME_POOL) {
+      const candidate = `INS ${n}`;
+      if (!usedNames.has(candidate)) { shipName = candidate; break; }
+    }
+    if (!shipName) shipName = `INS ${templateId.toUpperCase()}-${Date.now() % 1000}`;
+
+    this.playerFleetData.push({
+      templateId,
+      name: shipName,
+      isFlagship: false,
+      hull: tpl.maxHull,
+      maxHull: tpl.maxHull,
+      shields: tpl.maxShields,
+      maxShields: tpl.maxShields,
+      shieldRate: tpl.shieldRate,
+      armor: tpl.armor,
+      maxSpeed: tpl.maxSpeed,
+      upgrades: [],
+      modules: [],
+      xp: 0,
+      level: 1,
+    });
+    this.credits -= cost;
+    return { ok:true, name: shipName };
+  }
+
   isFlagshipAlive() {
     return this.playerFleetData.some(d => d.isFlagship && d.hull > 0);
   }

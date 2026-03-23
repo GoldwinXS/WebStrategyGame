@@ -3,6 +3,36 @@
 // RENDER.JS — Three.js 3D renderer (procedural geometry, no assets)
 // ================================================================
 
+// ── Value Noise (multi-octave, used for terrain) ──────────────────
+const Noise = {
+  _h(a, b, s = 0) {
+    let n = (a * 1619 ^ b * 31337 ^ s * 6791) | 0;
+    n = ((n ^ (n << 13)) * 1664525 + 1013904223) | 0;
+    n = ((n ^ (n >>> 17)) * 1664525 + 1013904223) | 0;
+    return (n >>> 0) / 4294967296;
+  },
+  smooth(t) { return t * t * t * (t * (t * 6 - 15) + 10); }, // Perlin fade
+  base(x, y, seed = 0) {
+    const xi = Math.floor(x), yi = Math.floor(y);
+    const xf = x - xi, yf = y - yi;
+    const u = this.smooth(xf), v = this.smooth(yf);
+    const a = this.lerp(this._h(xi, yi, seed),   this._h(xi+1, yi, seed),   u);
+    const b = this.lerp(this._h(xi, yi+1, seed), this._h(xi+1, yi+1, seed), u);
+    return this.lerp(a, b, v);
+  },
+  lerp(a, b, t) { return a + (b - a) * t; },
+  fbm(x, y, octaves = 5, lacunarity = 2.1, gain = 0.48, seed = 0) {
+    let v = 0, amp = 1, freq = 1, max = 0;
+    for (let i = 0; i < octaves; i++) {
+      v   += this.base(x * freq, y * freq, seed + i * 937) * amp;
+      max += amp;
+      amp  *= gain;
+      freq *= lacunarity;
+    }
+    return v / max; // 0..1
+  },
+};
+
 // ── Ship Model Factory ────────────────────────────────────────────
 const ShipModels = {
   _mat(color, glow, metal=0.7, rough=0.25, emissInt=0.25) {
@@ -381,13 +411,14 @@ class Renderer {
     this.scene = new THREE.Scene();
     this.scene.fog = new THREE.FogExp2(0x030810, 0.00012);
 
-    // Camera — angled to show the 3D water column (depth axis visible)
-    this.camera = new THREE.PerspectiveCamera(58, this.W / this.H, 5, 12000);
-    this.camTarget = new THREE.Vector3(0, -80, 0);
-    this.camHeight = 580;
-    this.camTilt   = 900;
-    this.camera.position.set(0, this.camHeight - 80, this.camTilt);
-    this.camera.lookAt(0, -80, 0);
+    // Camera — angled to show 3D depth axis while keeping ships visible
+    this.camera = new THREE.PerspectiveCamera(55, this.W / this.H, 5, 12000);
+    this.camTarget  = new THREE.Vector3(0, 0, 0);
+    this.camHeight  = 820;
+    this.camTilt    = 620;
+    this.camAzimuth = 0;   // horizontal orbit angle (radians)
+    this.camera.position.set(0, this.camHeight, this.camTilt);
+    this.camera.lookAt(0, 0, 0);
 
     // Raycasting — plane at y=0 by default; updated per-click to match selected ship depth
     this.raycaster   = new THREE.Raycaster();
@@ -465,25 +496,50 @@ class Renderer {
     this._createSelectionRing();
   }
 
-  // ── Seafloor (bottom of the water column) ─────────────────────
+  // ── Seafloor — FBM noise terrain with vertex colours ──────────
   _createSeafloor() {
-    const segs = 60;
-    const geo = new THREE.PlaneGeometry(WORLD_W + 2000, WORLD_H + 2000, segs, segs);
-    // Gently displace vertices for rocky terrain feel
-    const pos = geo.attributes.position;
+    const segs = 80;
+    const W    = WORLD_W + 2000;
+    const H    = WORLD_H + 2000;
+    const geo  = new THREE.PlaneGeometry(W, H, segs, segs);
+    const pos  = geo.attributes.position;
+
+    // Height map via fractal Brownian motion
+    const maxH = 95;
+    const heights = new Float32Array(pos.count);
     for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i), y = pos.getY(i);
-      const h = Math.sin(x * 0.008) * 18 + Math.cos(y * 0.011) * 14
-              + Math.sin((x+y)*0.005) * 10;
+      const wx = pos.getX(i) / W;
+      const wy = pos.getY(i) / H;
+      const n  = Noise.fbm(wx * 6 + 0.5, wy * 6 + 0.5, 6, 2.1, 0.48, 42);
+      // Warp: second FBM pass shifts sample coordinates (domain warping)
+      const wx2 = wx + 0.3 * Noise.fbm(wx * 4 + 3.7, wy * 4 + 1.9, 4, 2.0, 0.5, 77);
+      const wy2 = wy + 0.3 * Noise.fbm(wx * 4 + 9.2, wy * 4 + 7.1, 4, 2.0, 0.5, 13);
+      const n2  = Noise.fbm(wx2 * 6, wy2 * 6, 6, 2.1, 0.48, 200);
+      const h   = (n * 0.6 + n2 * 0.4) * maxH - maxH * 0.35;
       pos.setZ(i, h);
+      heights[i] = h;
     }
     geo.computeVertexNormals();
+
+    // Vertex colours: deep trenches = dark teal, ridges = glowing alien green
+    const colors = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      const t = (heights[i] + maxH * 0.35) / maxH; // 0=trench, 1=ridge
+      // Trench: dark midnight-teal; Ridge: bioluminescent alien green-blue
+      const r = Noise.lerp(0.01, 0.04, t);
+      const g = Noise.lerp(0.08, 0.55, t * t);
+      const b = Noise.lerp(0.10, 0.35, t);
+      colors[i*3]   = r;
+      colors[i*3+1] = g;
+      colors[i*3+2] = b;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
     const mat = new THREE.MeshStandardMaterial({
-      color:    new THREE.Color(0x0a1208),
-      emissive: new THREE.Color(0x030805),
-      emissiveIntensity: 0.4,
-      roughness: 0.95,
-      metalness: 0.05,
+      vertexColors: true,
+      emissive:     new THREE.Color(0x003810),
+      emissiveIntensity: 0.45,
+      roughness: 0.92, metalness: 0.08,
     });
     this.seafloor = new THREE.Mesh(geo, mat);
     this.seafloor.rotation.x = -Math.PI / 2;
@@ -491,26 +547,64 @@ class Renderer {
     this.seafloor.receiveShadow = true;
     this.scene.add(this.seafloor);
 
-    // Alien coral/rock spires on the seafloor
-    for (let i = 0; i < 35; i++) {
-      const h  = 30 + Math.random() * 120;
-      const r  = 6  + Math.random() * 18;
-      const geo2 = new THREE.CylinderGeometry(r * 0.1, r, h, 5 + Math.floor(Math.random()*4));
-      const hue  = Math.random() < 0.6 ? 0x0a1a08 : 0x062010;
+    // Hydrothermal vents: lights + small crystal columns at local terrain peaks
+    const ventPalette = [0x00ffaa, 0x00ccff, 0x55ffbb, 0x00ff77, 0x22ddff];
+    for (let i = 0; i < 7; i++) {
+      const vx = (Math.random() - 0.5) * WORLD_W * 0.85;
+      const vz = (Math.random() - 0.5) * WORLD_H * 0.85;
+      const col = ventPalette[i % ventPalette.length];
+
+      // Point light
+      const vl = new THREE.PointLight(col, 2.2, 700);
+      vl.position.set(vx, -WORLD_DEPTH + 8, vz);
+      vl.userData.phase = Math.random() * Math.PI * 2;
+      vl.userData.isVent = true;
+      this.scene.add(vl);
+      this.biolumLights.push(vl);
+
+      // Vent crystal cluster
+      for (let j = 0; j < 4; j++) {
+        const ch = 20 + Math.random() * 55;
+        const cr = 3 + Math.random() * 6;
+        const cg = new THREE.CylinderGeometry(cr * 0.06, cr, ch, 5);
+        const cm = new THREE.MeshStandardMaterial({
+          color: new THREE.Color(col).multiplyScalar(0.3),
+          emissive: new THREE.Color(col),
+          emissiveIntensity: 2.0,
+          roughness: 0.2, metalness: 0.8,
+        });
+        const c = new THREE.Mesh(cg, cm);
+        c.position.set(vx + (Math.random()-0.5)*30, -WORLD_DEPTH + ch/2, vz + (Math.random()-0.5)*30);
+        c.rotation.z = (Math.random()-0.5) * 0.5;
+        this.scene.add(c);
+      }
+    }
+
+    // Alien spire landmarks — tall enough to reach ship operating zones
+    const spireColors = [
+      [0x071a10, 0x00ff88], [0x071522, 0x00aaff],
+      [0x1a0a0a, 0xff4444], [0x0a1a10, 0x44ffaa],
+    ];
+    for (let i = 0; i < 55; i++) {
+      const isLandmark = i < 14;
+      const h  = isLandmark ? (180 + Math.random() * 260) : (18 + Math.random() * 80);
+      const r  = isLandmark ? (7 + Math.random() * 16) : (4 + Math.random() * 14);
+      const sc = spireColors[i % spireColors.length];
+      const geo2 = new THREE.CylinderGeometry(r * 0.04, r, h, 5 + Math.floor(Math.random()*3));
       const mat2 = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(hue),
-        emissive: new THREE.Color(Math.random() < 0.35 ? 0x003308 : 0x000000),
-        emissiveIntensity: 0.6,
-        roughness: 0.8,
+        color:    new THREE.Color(sc[0]),
+        emissive: new THREE.Color(sc[1]),
+        emissiveIntensity: isLandmark ? 1.6 : 0.5,
+        roughness: 0.75,
       });
       const mesh = new THREE.Mesh(geo2, mat2);
       mesh.position.set(
-        (Math.random() - 0.5) * WORLD_W,
+        (Math.random() - 0.5) * WORLD_W * 0.92,
         -WORLD_DEPTH + h / 2,
-        (Math.random() - 0.5) * WORLD_H
+        (Math.random() - 0.5) * WORLD_H * 0.92
       );
       mesh.rotation.y = Math.random() * Math.PI * 2;
-      mesh.rotation.z = (Math.random() - 0.5) * 0.25;
+      mesh.rotation.z = (Math.random() - 0.5) * 0.18;
       mesh.castShadow = true;
       this.scene.add(mesh);
     }
@@ -601,6 +695,38 @@ class Renderer {
     this._selRing.rotation.x = Math.PI / 2;
     this._selRing.visible = false;
     this.scene.add(this._selRing);
+
+    // Firing arc fan — uses a Group so X-tilt and Y-heading are independent
+    this._arcFan = null;    // the fan mesh (child of group)
+    this._arcGroup = null;  // the rotating parent group
+  }
+
+  // Build or rebuild the firing arc fan. arcHalf = half-angle in radians, range = display radius.
+  _updateArcFan(ship, arcHalf, range) {
+    if (this._arcGroup) { this.scene.remove(this._arcGroup); this._arcGroup = null; this._arcFan = null; }
+    if (!arcHalf || arcHalf >= Math.PI * 0.95) return;
+
+    const segs = 32;
+    const shape = new THREE.Shape();
+    shape.moveTo(0, 0);
+    for (let i = 0; i <= segs; i++) {
+      const a = -arcHalf + (2 * arcHalf * i / segs);
+      shape.lineTo(Math.sin(a) * range, Math.cos(a) * range);
+    }
+    shape.closePath();
+    const geo = new THREE.ShapeGeometry(shape);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xffa726, transparent: true, opacity: 0.10,
+      side: THREE.DoubleSide, depthWrite: false,
+    });
+    this._arcFan = new THREE.Mesh(geo, mat);
+    // Tilt the fan mesh to lie in the XZ plane (fan drawn in local XY by ShapeGeometry)
+    this._arcFan.rotation.x = -Math.PI / 2;
+
+    // Parent group handles heading rotation — keeps X-tilt independent
+    this._arcGroup = new THREE.Group();
+    this._arcGroup.add(this._arcFan);
+    this.scene.add(this._arcGroup);
   }
 
   _createOcean() {
@@ -828,9 +954,50 @@ class Renderer {
     if (ship.isDestroyed && ship.destroyTimer <= 0) {
       const data = this.shipMeshes.get(ship.id);
       if (data) { this.scene.remove(data.container); this.shipMeshes.delete(ship.id); }
+      // Remove contact blip if present
+      const blip = this._contactBlips && this._contactBlips.get(ship.id);
+      if (blip) { this.scene.remove(blip); this._contactBlips.delete(ship.id); }
       return;
     }
+
+    // ── Detection-based visibility ─────────────────────────────────
+    const det = ship.detectionLevel; // 0=unknown, 1=contact, 2=identified
+
+    // Contact blip (level 1): pulsing sphere shown instead of full model
+    if (!this._contactBlips) this._contactBlips = new Map();
+    if (det === 1) {
+      // Show contact blip, hide ship model
+      const data = this.shipMeshes.get(ship.id);
+      if (data) { data.container.visible = false; }
+
+      if (!this._contactBlips.has(ship.id)) {
+        const bg  = new THREE.SphereGeometry(14, 8, 6);
+        const bm  = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.55, depthWrite: false });
+        const blip = new THREE.Mesh(bg, bm);
+        this._contactBlips.set(ship.id, blip);
+        this.scene.add(blip);
+      }
+      const blip = this._contactBlips.get(ship.id);
+      blip.position.set(this.wx(ship.x), -(ship.depth || 0), this.wz(ship.y));
+      blip.material.opacity = 0.35 + 0.25 * Math.abs(Math.sin(this.time * 2.5));
+      blip.scale.setScalar(1 + 0.18 * Math.sin(this.time * 3.0));
+      return;
+    } else {
+      // Remove blip if detection upgraded or ship unknown
+      const blip = this._contactBlips && this._contactBlips.get(ship.id);
+      if (blip) { this.scene.remove(blip); this._contactBlips.delete(ship.id); }
+    }
+
+    // Unknown (det=0): nothing rendered
+    if (det === 0) {
+      const data = this.shipMeshes.get(ship.id);
+      if (data) data.container.visible = false;
+      return;
+    }
+
+    // Identified (det=2): full model
     const data = this._getOrCreateShipMesh(ship);
+    data.container.visible = true;
     const { container, group, shieldMesh, light } = data;
 
     container.position.set(this.wx(ship.x), -(ship.depth || 0), this.wz(ship.y));
@@ -1006,6 +1173,44 @@ class Renderer {
     }
   }
 
+  // ── Sonar Ping Rings ──────────────────────────────────────────
+  _updateSonarPings(combat, dt) {
+    if (!this._sonarRings) this._sonarRings = [];
+
+    // Spawn new rings from engine ping events
+    const pings = combat.sonarPings || [];
+    for (const ping of pings) {
+      if (ping._rendered) continue;
+      ping._rendered = true;
+      // Create a ring that expands outward
+      const geo = new THREE.TorusGeometry(1, 1.2, 4, 48); // thinner ring
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0x00aacc, transparent: true, opacity: 0.22, depthWrite: false,
+      });
+      const ring = new THREE.Mesh(geo, mat);
+      ring.rotation.x = Math.PI / 2; // lay in XZ
+      ring.position.set(this.wx(ping.x), -(ping.depth || 0), this.wz(ping.y));
+      this.scene.add(ring);
+      this._sonarRings.push({ mesh: ring, maxR: ping.range * DETECT_RANGE_CONTACT, t: 0, dur: 3.5 });
+    }
+
+    // Animate rings
+    for (let i = this._sonarRings.length - 1; i >= 0; i--) {
+      const r = this._sonarRings[i];
+      r.t += dt;
+      if (r.t >= r.dur) {
+        this.scene.remove(r.mesh);
+        this._sonarRings.splice(i, 1);
+        continue;
+      }
+      const pct     = r.t / r.dur;
+      const radius  = r.maxR * pct;
+      const opacity = (1 - pct) * 0.18; // very subtle
+      r.mesh.scale.setScalar(radius);
+      r.mesh.material.opacity = opacity;
+    }
+  }
+
   updateMoveMarker(marker) {
     this._ensureMoveMarker();
     if (!marker) { this._moveMarkerMesh.visible = false; return; }
@@ -1040,7 +1245,7 @@ class Renderer {
         this.clickPlane.constant = cDepth;
       }
 
-      // Show selection ring under selected ship
+      // Show selection ring and firing arc under selected ship
       if (this._selRing) {
         const sel = combat.selectedShip;
         if (sel && !sel.isDestroyed) {
@@ -1048,23 +1253,53 @@ class Renderer {
           this._selRing.visible = true;
           this._selRing.position.set(this.wx(sel.x), -(sel.depth || 0) - 2, this.wz(sel.y));
           this._selRing.scale.setScalar(scale + scale * 0.25 * Math.sin(this.time * 5));
+
+          // Firing arc fan: find most constrained arc weapon
+          const arcWeapon = sel.weapons.reduce((best, w) => {
+            if (w.arc === undefined) return best;
+            if (!best || w.arc < best.arc) return w;
+            return best;
+          }, null);
+          if (arcWeapon !== this._lastArcWeapon || sel !== this._lastArcShip) {
+            this._lastArcWeapon = arcWeapon;
+            this._lastArcShip   = sel;
+            this._updateArcFan(sel, arcWeapon ? arcWeapon.arc : null, arcWeapon ? arcWeapon.range * 0.85 : 0);
+          }
+          if (this._arcGroup) {
+            // Position the group at the ship; Y-rotation on the GROUP keeps X-tilt clean
+            this._arcGroup.position.set(this.wx(sel.x), -(sel.depth || 0) - 1, this.wz(sel.y));
+            this._arcGroup.rotation.y = -sel.angle; // group Y-rotation = ship heading
+            this._arcFan.material.opacity = 0.07 + 0.04 * Math.sin(this.time * 2);
+          }
         } else {
           this._selRing.visible = false;
+          if (this._arcGroup) { this.scene.remove(this._arcGroup); this._arcGroup = null; this._arcFan = null; }
+          this._lastArcWeapon = null;
+          this._lastArcShip = null;
         }
       }
     }
     this.camera.position.set(
-      this.camTarget.x,
+      this.camTarget.x + Math.sin(this.camAzimuth) * this.camTilt,
       this.camTarget.y + this.camHeight,
-      this.camTarget.z + this.camTilt
+      this.camTarget.z + Math.cos(this.camAzimuth) * this.camTilt
     );
     this.camera.lookAt(this.camTarget);
   }
 
   panCamera(dx, dy) {
     const pan = 1.5 / (this.camHeight / 900);
-    this.camTarget.x += dx * pan;
-    this.camTarget.z += dy * pan;
+    // Pan relative to camera azimuth so WASD feels correct after orbit
+    const rightX =  Math.cos(this.camAzimuth);
+    const rightZ = -Math.sin(this.camAzimuth);
+    const fwdX   = -Math.sin(this.camAzimuth);
+    const fwdZ   = -Math.cos(this.camAzimuth);
+    this.camTarget.x += (dx * rightX + dy * fwdX) * pan;
+    this.camTarget.z += (dx * rightZ + dy * fwdZ) * pan;
+  }
+
+  orbitCamera(dAngle) {
+    this.camAzimuth += dAngle;
   }
 
   zoomCamera(delta) {
@@ -1100,7 +1335,7 @@ class Renderer {
       const data = this.shipMeshes.get(ship.id);
       if (!data) continue;
       const shipPos = new THREE.Vector3(this.wx(ship.x), -(ship.depth || 0), this.wz(ship.y));
-      const sphere = new THREE.Sphere(shipPos, ship.size * 2.8);
+      const sphere = new THREE.Sphere(shipPos, ship.size * 5.0);
       if (this.raycaster.ray.intersectsSphere(sphere)) {
         const d = this.raycaster.ray.origin.distanceTo(shipPos);
         if (d < closestDist) { closestDist = d; closest = ship; }
@@ -1157,6 +1392,9 @@ class Renderer {
     // Move marker
     this.updateMoveMarker(combat.moveMarker);
 
+    // Sonar pings
+    this._updateSonarPings(combat, dt);
+
     // Render
     this.renderer.render(this.scene, this.camera);
   }
@@ -1171,8 +1409,8 @@ class Renderer {
       const ph = bl.userData.phase;
       bl.intensity = 0.3 + 0.2 * Math.sin(this.time * 0.9 + ph);
     }
-    const lookAt = new THREE.Vector3(0, -60, 0);
-    this.camera.position.set(0, this.camHeight - 60, this.camTilt);
+    const lookAt = new THREE.Vector3(0, 0, 0);
+    this.camera.position.set(0, this.camHeight, this.camTilt);
     this.camera.lookAt(lookAt);
     this.renderer.render(this.scene, this.camera);
   }
@@ -1197,6 +1435,20 @@ class Renderer {
     }
     this.activeEffects = [];
     if (this._moveMarkerMesh) this._moveMarkerMesh.visible = false;
+    if (this._arcGroup) { this.scene.remove(this._arcGroup); this._arcGroup = null; this._arcFan = null; }
+    this._lastArcWeapon = null;
+    this._lastArcShip = null;
+    if (this._selRing) this._selRing.visible = false;
+    // Contact blips
+    if (this._contactBlips) {
+      for (const [, mesh] of this._contactBlips) this.scene.remove(mesh);
+      this._contactBlips.clear();
+    }
+    // Sonar rings
+    if (this._sonarRings) {
+      for (const r of this._sonarRings) this.scene.remove(r.mesh);
+      this._sonarRings = [];
+    }
     this.terrainGroup.clear();
   }
 }

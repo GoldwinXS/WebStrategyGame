@@ -7,6 +7,15 @@ const WORLD_W = 3200;
 const WORLD_H = 2400;
 const WORLD_DEPTH = 500;  // max depth (seafloor)
 
+// Radar/sonar detection
+// DETECT_0: enemy becomes a CONTACT (blip visible, approximate position)
+// DETECT_1: enemy is IDENTIFIED (full model visible, can be targeted by arc weapons)
+// Depth penalty: deeper ships are harder to detect (halved at WORLD_DEPTH/2)
+const DETECT_RANGE_CONTACT  = 1.6;  // multiplier on detectRange for contact
+const DETECT_RANGE_IDENTIFY = 1.0;  // multiplier on detectRange for full ID
+const DETECT_DEPTH_PENALTY  = 0.6;  // max range fraction lost when fully submerged
+const SONAR_PING_INTERVAL   = 4.5;  // seconds between sonar pulses per ship
+
 // Hull polygon shapes (local space, pointing UP = forward, scaled by ship.size/20)
 const HULL_SHAPES = {
   skiff:       [[0,-20],[8,10],[0,5],[-8,10]],
@@ -168,11 +177,13 @@ const ENEMY_TEMPLATES = {
 
 const WEAPON_DATA = {
   // ── Player weapons ─────────────────────────────────────────────
+  // arc: half-angle in radians that weapon can fire within relative to ship facing.
+  // No arc = full turret rotation. arc: Math.PI = forward hemisphere. arc: Math.PI*0.5 = ±90°.
   pulse_cannon:   { name:'Pulse Cannon',   type:'projectile', dmg:14, sdmg:1.0, hdmg:1.0, range:360, cd:1.1, pSpeed:460, pSize:4, pColor:'#00e5ff', color:'#00e5ff' },
-  particle_lance: { name:'Particle Lance', type:'beam',       dmg:9,  sdmg:0.8, hdmg:1.3, range:460, cd:0.08, beamDur:2.2, rechargeDur:3.2, bWidth:3, color:'#ff6e40' },
-  heavy_cannon:   { name:'Heavy Cannon',   type:'projectile', dmg:40, sdmg:0.8, hdmg:1.5, range:410, cd:2.8, pSpeed:340, pSize:8, pColor:'#ffa726', color:'#ffa726' },
+  particle_lance: { name:'Particle Lance', type:'beam',       dmg:9,  sdmg:0.8, hdmg:1.3, range:460, cd:0.08, beamDur:2.2, rechargeDur:3.2, bWidth:3, color:'#ff6e40', arc: Math.PI * 0.6 },
+  heavy_cannon:   { name:'Heavy Cannon',   type:'projectile', dmg:40, sdmg:0.8, hdmg:1.5, range:410, cd:2.8, pSpeed:340, pSize:8, pColor:'#ffa726', color:'#ffa726', arc: Math.PI * 0.55 },
   vortex_torpedo: { name:'Vortex Torpedo', type:'torpedo',    dmg:90, sdmg:0.5, hdmg:2.2, range:620, cd:8.5, pSpeed:195, pSize:9, pColor:'#ff7043', exRadius:65, trackRate:1.6, maxAmmo:6, color:'#ff7043' },
-  plasma_driver:  { name:'Plasma Driver',  type:'projectile', dmg:110,sdmg:1.2, hdmg:1.2, range:510, cd:4.8, pSpeed:290, pSize:14,pColor:'#e040fb', exRadius:45, color:'#e040fb' },
+  plasma_driver:  { name:'Plasma Driver',  type:'projectile', dmg:110,sdmg:1.2, hdmg:1.2, range:510, cd:4.8, pSpeed:290, pSize:14,pColor:'#e040fb', exRadius:45, color:'#e040fb', arc: Math.PI * 0.45 },
   drone_launcher: { name:'Drone Bay',      type:'drone',      droneDmg:18, droneHull:35, droneSpeed:260, range:520, cd:18.0, maxDrones:3, color:'#40c4ff' },
   // Electronic warfare — reduces enemy accuracy & weapon range
   ew_jammer:      { name:'EW Jammer',      type:'ew',         ewRadius:500, ewStrength:40, cd:0, color:'#76ff03' },
@@ -185,6 +196,70 @@ const WEAPON_DATA = {
   sonic_pulse:    { name:'Sonic Pulse',    type:'aoe',        dmg:35, sdmg:1.0, hdmg:1.0, range:310, cd:5.5, exRadius:160, color:'#b9f6ca' },
   depth_charge:   { name:'Depth Charge',   type:'torpedo',    dmg:130,sdmg:0.8, hdmg:1.6, range:420, cd:13.0,pSpeed:145, pSize:11,pColor:'#69f0ae', exRadius:105, trackRate:0.8, maxAmmo:4, color:'#69f0ae' },
 };
+
+// ── Ship module slots by template ─────────────────────────────────
+// [weapon, defense, system] slot counts
+const MODULE_SLOTS = {
+  skiff:       { weapon:1, defense:1, system:1 },
+  cutter:      { weapon:2, defense:1, system:1 },
+  frigate:     { weapon:2, defense:2, system:1 },
+  gunship:     { weapon:3, defense:2, system:1 },
+  cruiser:     { weapon:3, defense:2, system:2 },
+  carrier:     { weapon:2, defense:2, system:3 },
+  dreadnought: { weapon:4, defense:3, system:2 },
+};
+
+// Max fleet size
+const MAX_FLEET_SIZE = 5;
+
+// ── Ship modules (equippable, permanent once bought) ───────────────
+const MODULE_DATA = {
+  // ── Weapon modules ─────────────────────────────────────────────
+  railgun:      { id:'railgun',      category:'weapon',  name:'Railgun Battery',      desc:'Adds a heavy cannon with frontal firing arc.',             cost:280, icon:'⦿',
+    apply(s){ s.weapons.push(Object.assign({}, WEAPON_DATA.heavy_cannon,  { timer:0, arc: Math.PI*0.55 })); } },
+  torp_rack:    { id:'torp_rack',    category:'weapon',  name:'Torpedo Rack',          desc:'Adds 1 vortex torpedo launcher (6 shots).',               cost:320, icon:'⦾',
+    apply(s){ s.weapons.push(Object.assign({}, WEAPON_DATA.vortex_torpedo,{ timer:0, ammo:6 })); } },
+  pulse_array:  { id:'pulse_array',  category:'weapon',  name:'Pulse Array',           desc:'Adds 2 pulse cannons (free-rotating turrets).',            cost:180, icon:'◉',
+    apply(s){ s.weapons.push(Object.assign({},WEAPON_DATA.pulse_cannon,{timer:0})); s.weapons.push(Object.assign({},WEAPON_DATA.pulse_cannon,{timer:0})); } },
+  lance_emitter:{ id:'lance_emitter',category:'weapon',  name:'Particle Lance Emitter',desc:'Adds a particle lance beam with forward arc.',             cost:350, icon:'⟿',
+    apply(s){ s.weapons.push(Object.assign({},WEAPON_DATA.particle_lance, { timer:0, beamActive:false, recharging:false, arc:Math.PI*0.6 })); } },
+  drone_bay:    { id:'drone_bay',    category:'weapon',  name:'Combat Drone Bay',      desc:'Adds a drone launcher (3 combat drones).',                cost:380, icon:'⬡',
+    apply(s){ s.weapons.push(Object.assign({},WEAPON_DATA.drone_launcher, { timer:0, droneCount:0 })); } },
+  // ── Defense modules ────────────────────────────────────────────
+  hull_refit:   { id:'hull_refit',   category:'defense', name:'Reinforced Hull',        desc:'+120 max hull, +8 armor.',                                cost:220, icon:'◈',
+    apply(s){ s.maxHull+=120; s.hull=Math.min(s.hull+30, s.maxHull); s.armor+=8; } },
+  shield_emitter:{ id:'shield_emitter',category:'defense',name:'Shield Emitter Array',  desc:'+80 shields, +12 recharge/s, -3s recharge delay.',        cost:240, icon:'◎',
+    apply(s){ s.maxShields+=80; s.shields=Math.min(s.shields+40, s.maxShields); s.shieldRate+=12; s.shieldDelay=Math.max(1, (s.shieldDelay||4)-3); } },
+  reactive_plating:{ id:'reactive_plating',category:'defense',name:'Reactive Plating', desc:'+16 armor. Heavy — -10% speed.',                          cost:160, icon:'⧫',
+    apply(s){ s.armor+=16; s.maxSpeed=Math.round(s.maxSpeed*0.9); } },
+  ablative_coat:{ id:'ablative_coat',category:'defense', name:'Ablative Coating',       desc:'+50 hull, +6 armor, better shield absorption.',           cost:190, icon:'◆',
+    apply(s){ s.maxHull+=50; s.hull=Math.min(s.hull+50,s.maxHull); s.armor+=6; } },
+  // ── System modules ─────────────────────────────────────────────
+  sensor_suite: { id:'sensor_suite', category:'system',  name:'Advanced Sensor Suite',  desc:'+220 detection range, +20% sonar ping frequency.',        cost:260, icon:'◈',
+    apply(s){ s.detectRange+=220; } },
+  ew_disruptor: { id:'ew_disruptor', category:'system',  name:'EW Disruptor Pod',        desc:'+30 EW strength; jams enemy targeting at range.',         cost:280, icon:'⚡',
+    apply(s){ s.ewStrength+=30; } },
+  repair_nanites:{ id:'repair_nanites',category:'system',name:'Repair Nanites',          desc:'Regenerates 6 hull/s during combat.',                     cost:320, icon:'⊕',
+    apply(s){ s.hullRegen=(s.hullRegen||0)+6; } },
+  stealth_hull: { id:'stealth_hull', category:'system',  name:'Stealth Hull Coating',    desc:'+50 stealth — much harder for enemy sonar to detect.',    cost:200, icon:'◌',
+    apply(s){ s.stealthRating=(s.stealthRating||0)+50; } },
+  deep_dive:    { id:'deep_dive',    category:'system',  name:'Deep Dive Systems',       desc:'+100 depth rate, sonar effective at all depths.',          cost:180, icon:'▼',
+    apply(s){ s.depthRate+=100; } },
+};
+
+// ── Recruitable ships (available in store) ────────────────────────
+const RECRUITABLE_SHIPS = [
+  { templateId:'cutter',      baseName:'INS', cost:260 },
+  { templateId:'frigate',     baseName:'INS', cost:400 },
+  { templateId:'gunship',     baseName:'INS', cost:460 },
+  { templateId:'cruiser',     baseName:'INS', cost:720 },
+];
+// Ship name pools for recruited ships
+const SHIP_NAME_POOL = [
+  'Ardent','Valor','Defiant','Resolute','Stalwart','Tempest','Vanguard',
+  'Intrepid','Dauntless','Invictus','Ironclad','Relentless','Vigilance',
+  'Bastion','Harbinger','Nemesis','Rampart','Sentinel','Spectre','Typhoon',
+];
 
 const UPGRADE_POOL = [
   { id:'hull_plate',    name:'Hull Plating',       desc:'+60 max hull, +5 hull restored',   cost:110, apply:(s)=>{ s.maxHull+=60; s.hull=Math.min(s.hull+5,s.maxHull); } },
