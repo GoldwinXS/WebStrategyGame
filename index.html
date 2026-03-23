@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="description" content="Pelagos: Abyssal Command — A 3D roguelike naval strategy game set on an alien ocean world">
+  <title>PELAGOS: Abyssal Command</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Three.js from CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Three.js renders here — always visible -->
+  <canvas id="gameCanvas"></canvas>
+
+  <!-- All HTML UI overlays -->
+  <div id="ui">
+
+    <!-- ── MAIN MENU ─────────────────────────────── -->
+    <div id="screen-menu" class="screen active">
+      <div class="menu-vignette"></div>
+      <div class="menu-content">
+        <div class="logo-glow"></div>
+        <div class="title-block">
+          <h1 class="title-main">PELAGOS</h1>
+          <h2 class="title-sub">ABYSSAL COMMAND</h2>
+          <p class="title-tagline">A 3D Roguelike Naval Strategy</p>
+        </div>
+        <div class="menu-buttons">
+          <button class="btn-primary" id="btn-new-run">NEW RUN</button>
+          <button class="btn-secondary" id="btn-continue">CONTINUE RUN</button>
+          <button class="btn-ghost" id="btn-how-to-play">HOW TO PLAY</button>
+        </div>
+        <div class="lore-text">
+          <p>Year 2387. Colony vessel <em>Heraklion</em> drops from FTL above Pelagos Prime — an ocean world uncharted and hostile. The drive core is gone. The rescue beacon awaits at the polar axis, three sectors away.</p>
+          <p>The seas are not empty.</p>
+        </div>
+        <div id="save-info" class="save-info"></div>
+      </div>
+    </div>
+
+    <!-- ── HOW TO PLAY ────────────────────────────── -->
+    <div id="screen-help" class="screen">
+      <div class="screen-panel">
+        <h2>HOW TO PLAY</h2>
+        <div class="help-grid">
+          <div class="help-section">
+            <h3>⚓ COMBAT</h3>
+            <ul>
+              <li><strong>Click / Tap ship</strong> — Select it</li>
+              <li><strong>Click / Tap ocean</strong> — Move selected ship</li>
+              <li><strong>Click / Tap enemy</strong> — Set as attack target</li>
+              <li><strong>SPACE or ⏸ button</strong> — Tactical pause</li>
+              <li>Ships <em>auto-fire</em> at their assigned target</li>
+              <li>Scroll / pinch to zoom · middle-drag to pan</li>
+            </ul>
+          </div>
+          <div class="help-section">
+            <h3>🗺 CAMPAIGN</h3>
+            <ul>
+              <li>Navigate a node map across 3 sectors</li>
+              <li>⚔ Combat — defeat all enemies to win</li>
+              <li>☠ Elite — powerful enemies, greater loot</li>
+              <li>? Event — story choices with consequences</li>
+              <li>$ Supply — spend credits on upgrades</li>
+              <li>✚ Rest — repair your fleet</li>
+              <li>★ Boss — clear each sector boss to advance</li>
+            </ul>
+          </div>
+          <div class="help-section">
+            <h3>⚡ FLEET</h3>
+            <ul>
+              <li>Flagship <em>Heraklion</em> is irreplaceable — protect it</li>
+              <li>Other ships destroyed in combat are <em>lost forever</em></li>
+              <li>Earn credits to buy ships and upgrades</li>
+              <li>Ships that survive gain experience and level up</li>
+              <li>Upgrades are applied between encounters</li>
+            </ul>
+          </div>
+          <div class="help-section">
+            <h3>👾 FACTIONS</h3>
+            <ul>
+              <li><span class="keth">Keth'vari</span> — Organic bio-ships, fast and swarming</li>
+              <li><span class="shard">Shard Collective</span> — Crystalline, powerful shields</li>
+              <li><span class="lev">Leviathans</span> — Ancient creatures, titanic scale</li>
+            </ul>
+          </div>
+        </div>
+        <button class="btn-primary" id="btn-help-back">BACK TO MENU</button>
+      </div>
+    </div>
+
+    <!-- ── CAMPAIGN MAP ───────────────────────────── -->
+    <div id="screen-campaign" class="screen">
+      <div class="campaign-header">
+        <div class="sector-title">
+          <span id="sector-label">SECTOR 1</span>
+          <span id="sector-name"></span>
+        </div>
+        <div class="hdr-resources">
+          <span class="res-credits">⬡ <strong id="hdr-credits">0</strong></span>
+          <span class="res-threat">⚠ <strong id="hdr-threat">0</strong></span>
+        </div>
+        <div id="fleet-mini-icons" class="fleet-mini"></div>
+      </div>
+      <div id="campaign-map-container">
+        <!-- Map rendered in render.js or via UI manager -->
+        <canvas id="map-canvas"></canvas>
+        <div id="map-nodes"></div>
+      </div>
+      <div class="campaign-footer">
+        <button class="btn-ghost small" id="btn-view-fleet">VIEW FLEET</button>
+      </div>
+    </div>
+
+    <!-- ── FLEET SCREEN ───────────────────────────── -->
+    <div id="screen-fleet" class="screen">
+      <div class="screen-panel">
+        <h2>YOUR FLEET</h2>
+        <div class="fleet-tabs">
+          <button class="tab-btn active" data-tab="ships">SHIPS</button>
+          <button class="tab-btn" data-tab="upgrades">UPGRADES</button>
+        </div>
+        <div id="fleet-ships-panel" class="fleet-panel active">
+          <div id="fleet-ship-list"></div>
+          <div id="fleet-ship-detail"></div>
+        </div>
+        <div id="fleet-upgrades-panel" class="fleet-panel">
+          <p class="dim">Upgrades are applied via the Supply Depot or post-combat rewards.</p>
+        </div>
+        <div class="screen-footer">
+          <span class="res-credits">⬡ <strong id="fleet-credits">0</strong></span>
+          <button class="btn-primary" id="btn-fleet-back">BACK</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── EVENT SCREEN ───────────────────────────── -->
+    <div id="screen-event" class="screen">
+      <div class="screen-panel event-panel">
+        <div class="event-header">
+          <div class="event-badge">!</div>
+          <h2 id="event-title">EVENT</h2>
+        </div>
+        <p id="event-description"></p>
+        <div id="event-result" class="event-result hidden"></div>
+        <div id="event-choices" class="event-choices"></div>
+        <button class="btn-primary hidden" id="btn-event-continue">CONTINUE</button>
+      </div>
+    </div>
+
+    <!-- ── STORE SCREEN ───────────────────────────── -->
+    <div id="screen-store" class="screen">
+      <div class="screen-panel">
+        <h2>SUPPLY DEPOT</h2>
+        <p class="dim">Salvage traders operating in the deep. No questions asked.</p>
+        <div id="store-items" class="store-grid"></div>
+        <div class="screen-footer">
+          <span class="res-credits">⬡ <strong id="store-credits">0</strong></span>
+          <button class="btn-primary" id="btn-store-leave">LEAVE</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── PRE-COMBAT ─────────────────────────────── -->
+    <div id="screen-precombat" class="screen">
+      <div class="screen-panel precombat-panel">
+        <div class="precombat-header">
+          <div class="contact-badge">⚔</div>
+          <h2 id="precombat-title">ENEMY CONTACT</h2>
+        </div>
+        <p id="precombat-desc"></p>
+        <div class="precombat-two-col">
+          <div class="precombat-col">
+            <h3>ENEMY FORCES</h3>
+            <div id="precombat-enemies"></div>
+          </div>
+          <div class="precombat-col">
+            <h3>YOUR FLEET</h3>
+            <div id="precombat-fleet-list"></div>
+          </div>
+        </div>
+        <div class="screen-footer">
+          <span class="res-credits">⬡ <strong id="precombat-credits">0</strong></span>
+          <button class="btn-danger" id="btn-engage">ENGAGE</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── COMBAT HUD ─────────────────────────────── -->
+    <div id="hud-combat" class="hud hidden">
+      <div class="hud-top">
+        <div id="hud-fleet-icons" class="hud-fleet"></div>
+        <div class="hud-center">
+          <div id="pause-status" class="pause-status"></div>
+          <button id="btn-pause-combat" class="btn-pause">⏸ PAUSE</button>
+        </div>
+        <div class="hud-right">
+          <div id="combat-timer" class="combat-timer">00:00</div>
+        </div>
+      </div>
+      <div id="hud-selected-info" class="hud-selected"></div>
+      <div class="hud-bottom">
+        <div id="order-hint" class="order-hint">Select a ship · SPACE to pause</div>
+        <div class="hud-btns">
+          <button class="btn-hud" id="btn-all-stop">ALL STOP</button>
+          <button class="btn-hud" id="btn-select-all">SELECT ALL</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── POST-COMBAT REWARDS ────────────────────── -->
+    <div id="screen-rewards" class="screen">
+      <div class="screen-panel">
+        <h2 id="rewards-title">VICTORY</h2>
+        <p id="rewards-subtitle"></p>
+        <div class="rewards-layout">
+          <div class="rewards-col">
+            <h3>BATTLE REPORT</h3>
+            <div id="battle-stats" class="stat-table"></div>
+          </div>
+          <div class="rewards-col">
+            <h3>UPGRADE SHIP</h3>
+            <p class="dim">Choose an upgrade to apply:</p>
+            <div id="upgrade-choices"></div>
+            <div id="upgrade-section"></div>
+          </div>
+        </div>
+        <div class="screen-footer">
+          <span class="res-credits">⬡ <strong id="rewards-credits">0</strong></span>
+          <button class="btn-primary" id="btn-rewards-continue">CONTINUE</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── GAME OVER ──────────────────────────────── -->
+    <div id="screen-gameover" class="screen">
+      <div class="screen-panel centered-panel">
+        <div class="end-icon danger">✕</div>
+        <h2>FLAGSHIP LOST</h2>
+        <p>The <em>INS Heraklion</em> has been destroyed. The colony cannot be saved.</p>
+        <div id="gameover-stats" class="stat-table"></div>
+        <button class="btn-primary" id="btn-gameover-menu">MAIN MENU</button>
+      </div>
+    </div>
+
+    <!-- ── VICTORY ────────────────────────────────── -->
+    <div id="screen-victory" class="screen">
+      <div class="screen-panel centered-panel">
+        <div class="end-icon gold">★</div>
+        <h2>BEACON REACHED</h2>
+        <p>The rescue signal broadcasts across the void. The colony of Pelagos Prime will survive.</p>
+        <div id="victory-stats" class="stat-table"></div>
+        <button class="btn-primary" id="btn-victory-menu">PLAY AGAIN</button>
+      </div>
+    </div>
+
+    <!-- Notification toast -->
+    <!-- Injected dynamically by game.js -->
+
+  </div><!-- /#ui -->
+
+  <!-- Game scripts (order matters) -->
+  <script src="js/data.js"></script>
+  <script src="js/engine.js"></script>
+  <script src="js/campaign.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
