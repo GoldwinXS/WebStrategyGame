@@ -116,7 +116,12 @@ class AudioManager {
     this._stopMusic();
     this._musicState = state;
     if (state === 'menu')   this._startMenuMusic();
-    if (state === 'combat') this._startCombatMusic();
+    if (state === 'combat') {
+      const pick = Math.floor(Math.random() * 3);
+      if (pick === 0) this._startCombatMusic();
+      else if (pick === 1) this._startCombatMusicB();
+      else this._startCombatMusicC();
+    }
   }
 
   stopMusic() { this._stopMusic(); }
@@ -149,24 +154,35 @@ class AudioManager {
     const BPM = 64;
     const beat = 60 / BPM; // seconds per beat
 
-    // ── 1. Sub-bass drone: E1 (41.2 Hz) — constant, with gentle LFO ──
+    // ── 1. Sub-bass drone: E1 (41.2 Hz) — breathes in/out rather than constant ──
     const droneOsc = ctx.createOscillator();
     droneOsc.type = 'sine';
     droneOsc.frequency.value = 41.2;
     const droneLFO = ctx.createOscillator();
-    droneLFO.frequency.value = 0.15;
+    droneLFO.frequency.value = 0.12;
     const droneLFOGain = ctx.createGain();
-    droneLFOGain.gain.value = 0.9;
+    droneLFOGain.gain.value = 1.1;
     droneLFO.connect(droneLFOGain);
     droneLFOGain.connect(droneOsc.frequency);
     const droneGain = ctx.createGain();
-    droneGain.gain.value = 0.20;
+    droneGain.gain.value = 0;
     const droneLPF = ctx.createBiquadFilter();
-    droneLPF.type = 'lowpass'; droneLPF.frequency.value = 200;
+    droneLPF.type = 'lowpass'; droneLPF.frequency.value = 180;
     droneOsc.connect(droneLPF); droneLPF.connect(droneGain);
     droneGain.connect(out);
     droneOsc.start(); droneLFO.start();
     this._musicNodes.push(droneOsc, droneLFO);
+    // Breathing envelope: fade in over 6s, hold 8s, fade out 6s, rest 10s, repeat
+    const scheduleDroneBreathe = (delay) => {
+      if (this._musicState !== 'menu') return;
+      const t = ctx.currentTime + delay / 1000;
+      droneGain.gain.setValueAtTime(0, t);
+      droneGain.gain.linearRampToValueAtTime(0.18, t + 6);
+      droneGain.gain.setValueAtTime(0.18, t + 14);
+      droneGain.gain.linearRampToValueAtTime(0, t + 20);
+      this._after(delay + 30000, () => scheduleDroneBreathe(0));
+    };
+    scheduleDroneBreathe(1000);
 
     // ── 2. Slow chord pads (sawtooth + LPF) ──
     // Progression: Em7 → Cmaj7 → Gmaj7 → Bm7  (in E Dorian, chords I-VI-III-VII)
@@ -211,30 +227,44 @@ class AudioManager {
 
     // ── 3. Arpeggio melody: E Dorian scale ascending/descending ──
     //  E3-G3-A3-B3-D4-E4-D4-B3 then repeat, varying octave every 4 bars
-    const arpNotes = [164.8, 196, 220, 246.9, 293.7, 329.6, 293.7, 246.9];
-    const arp8th = beat / 2; // 8th note
-    let arpStep = 0;
+    // Arpeggio plays in 8-note phrases with deliberate silence between phrases
+    const arpPhrases = [
+      [164.8, 196, 220, 246.9, 293.7, 329.6, 293.7, 246.9],  // ascending E Dorian
+      [329.6, 246.9, 220, 196, 246.9, 220, 164.8, 196],       // descending variation
+      [164.8, 220, 246.9, 329.6, 220, 164.8, 196, 246.9],     // leap pattern
+    ];
+    const arp8th = beat / 2;
+    let phraseIdx = 0;
 
-    const scheduleArp = () => {
+    const scheduleArpPhrase = () => {
       if (this._musicState !== 'menu') return;
-      // Occasional skip (rest) for organic feel
-      if (Math.random() < 0.12) { this._after(arp8th * 1000, scheduleArp); return; }
-      const octMod = (Math.floor(arpStep / 16) % 2 === 0) ? 1 : 0.5;
-      const freq = arpNotes[arpStep % arpNotes.length] * octMod;
-      arpStep++;
-      const osc = ctx.createOscillator();
-      osc.type = 'sine';
-      osc.frequency.value = freq;
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0, ctx.currentTime);
-      g.gain.linearRampToValueAtTime(0.10, ctx.currentTime + 0.03);
-      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + arp8th * 1.6);
-      osc.connect(g); g.connect(out); g.connect(rev);
-      osc.start(); osc.stop(ctx.currentTime + arp8th * 2);
-      this._musicNodes.push(osc);
-      this._after(arp8th * 1000, scheduleArp);
+      const phrase = arpPhrases[phraseIdx % arpPhrases.length];
+      phraseIdx++;
+      const octMod = phraseIdx % 3 === 0 ? 0.5 : 1;
+
+      phrase.forEach((freq, i) => {
+        // Occasional note skip for organic feel
+        if (Math.random() < 0.15) return;
+        this._after(i * arp8th * 1000, () => {
+          if (this._musicState !== 'menu') return;
+          const osc = ctx.createOscillator();
+          osc.type = 'sine';
+          osc.frequency.value = freq * octMod;
+          const g = ctx.createGain();
+          g.gain.setValueAtTime(0, ctx.currentTime);
+          g.gain.linearRampToValueAtTime(0.09, ctx.currentTime + 0.03);
+          g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + arp8th * 1.8);
+          osc.connect(g); g.connect(out); g.connect(rev);
+          osc.start(); osc.stop(ctx.currentTime + arp8th * 2.2);
+          this._musicNodes.push(osc);
+        });
+      });
+
+      // Rest between phrases: 1-3 bars of silence, then next phrase
+      const restBars = 1 + Math.floor(Math.random() * 3);
+      this._after((phrase.length * arp8th + beat * restBars) * 1000, scheduleArpPhrase);
     };
-    this._after(beat * 1000, scheduleArp); // start after 1 beat
+    this._after(beat * 2000, scheduleArpPhrase); // start after 2 beats
 
     // ── 4. Bioluminescent "plop" atmospheric sounds ──
     const scheduleAtmos = () => {
@@ -282,6 +312,13 @@ class AudioManager {
 
     const scheduleBass = () => {
       if (this._musicState !== 'combat') return;
+      // Every 8 bars (~4s at 128BPM) take a 1-bar rest for breathing room
+      const barNum = Math.floor(bassStep / bassSeq.length);
+      if (bassStep % (bassSeq.length * 8) === 0 && bassStep > 0) {
+        bassStep++;
+        this._after(beat * 2 * 1000, scheduleBass); // 2-beat rest
+        return;
+      }
       const f = bassSeq[bassStep % bassSeq.length];
       bassStep++;
       const osc = ctx.createOscillator();
@@ -383,23 +420,331 @@ class AudioManager {
     };
     scheduleArp();
 
-    // ── 5. Sustained tension pad: C#m7 ──
-    const padFreqs = [69.3, 138.6, 164.8, 207.7, 246.9]; // C#2-C#3-E3-G#3-B3
-    for (const f of padFreqs) {
-      const osc = ctx.createOscillator();
-      osc.type = 'sawtooth';
-      osc.frequency.value = f;
-      osc.detune.value = (Math.random() - 0.5) * 12;
+    // ── 5. Tension pad: C#m7 — swells in and out rather than droning ──
+    // Cycles through two voicings for harmonic movement
+    const padVoicings = [
+      [69.3, 138.6, 164.8, 207.7, 246.9],  // C#m7: C#2-C#3-E3-G#3-B3
+      [73.4, 146.8, 164.8, 220,   277.2],  // Dm7:  D2-D3-E3-A3-C#4 (flat-II swell)
+    ];
+    let padVoiceIdx = 0;
+    const schedulePadSwell = () => {
+      if (this._musicState !== 'combat') return;
+      const freqs = padVoicings[padVoiceIdx % padVoicings.length];
+      padVoiceIdx++;
+      const swellDur = beat * 16; // 4 bars per swell
+      for (const f of freqs) {
+        const osc = ctx.createOscillator();
+        osc.type = 'sawtooth';
+        osc.frequency.value = f;
+        osc.detune.value = (Math.random() - 0.5) * 10;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0, ctx.currentTime);
+        g.gain.linearRampToValueAtTime(0.040, ctx.currentTime + swellDur * 0.35);
+        g.gain.setValueAtTime(0.040, ctx.currentTime + swellDur * 0.65);
+        g.gain.linearRampToValueAtTime(0, ctx.currentTime + swellDur);
+        const lpf = ctx.createBiquadFilter();
+        lpf.type = 'lowpass'; lpf.frequency.value = 650;
+        osc.connect(lpf); lpf.connect(g);
+        g.connect(out); g.connect(rev);
+        osc.start(); osc.stop(ctx.currentTime + swellDur + 0.1);
+        this._musicNodes.push(osc);
+      }
+      // Short gap between swells, then next voicing
+      this._after((swellDur + beat * 2) * 1000, schedulePadSwell);
+    };
+    schedulePadSwell();
+  }
+
+  // ── F# LOCRIAN — Slow, oppressive combat (76 BPM) ────────────
+  // Scale: F#2=92.5, G2=98, A2=110, B2=123.5, C#3=138.6, D3=146.8, E3=164.8
+  // Locrian's tritone above root (C natural over F#) creates maximum dread.
+  // At half-tempo this sounds slow and crushing — good for tense, grinding battles.
+  _startCombatMusicB() {
+    const ctx = this._ctx;
+    const out = this._musicGain;
+    const rev = this._reverbInput;
+    const BPM  = 76;
+    const beat  = 60 / BPM;
+    const t16th = beat / 4;
+
+    // 1. Sub-bass tremolo drone: F#1 (46.25 Hz) — slow wavering dread
+    const droneOsc = ctx.createOscillator();
+    droneOsc.type = 'sine';
+    droneOsc.frequency.value = 46.25;
+    const tremLFO = ctx.createOscillator();
+    tremLFO.type = 'sine';
+    tremLFO.frequency.value = 0.07; // very slow waver
+    const tremGain = ctx.createGain();
+    tremGain.gain.value = 1.4;
+    tremLFO.connect(tremGain);
+    tremGain.connect(droneOsc.frequency);
+    const droneG = ctx.createGain();
+    droneG.gain.value = 0.20;
+    const droneLPF = ctx.createBiquadFilter();
+    droneLPF.type = 'lowpass'; droneLPF.frequency.value = 200;
+    droneOsc.connect(droneLPF); droneLPF.connect(droneG); droneG.connect(out);
+    droneOsc.start(); tremLFO.start();
+    this._musicNodes.push(droneOsc, tremLFO);
+
+    // 2. Slow chord swells — tritone pairs (F#m and Cdim)
+    const swellChords = [
+      [92.5, 110, 138.6, 164.8],   // F#2-A2-C#3-E3  (F#m)
+      [98,   123.5, 155.6, 196],   // G2-B2-Eb3-G3   (Gdim — tritone)
+      [92.5, 123.5, 164.8, 185],   // F#2-B2-E3-F#3  (F#sus2 spread)
+      [82.4, 110,   146.8, 185],   // E2-A2-D3-F#3   (Am/E)
+    ];
+    let swellIdx = 0;
+    const scheduleSwellB = () => {
+      if (this._musicState !== 'combat') return;
+      const freqs = swellChords[swellIdx % swellChords.length];
+      swellIdx++;
+      const dur = beat * 12;
+      for (const f of freqs) {
+        const osc = ctx.createOscillator();
+        osc.type = 'triangle';
+        osc.frequency.value = f;
+        osc.detune.value = (Math.random() - 0.5) * 8;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0, ctx.currentTime);
+        g.gain.linearRampToValueAtTime(0.034, ctx.currentTime + dur * 0.28);
+        g.gain.setValueAtTime(0.034, ctx.currentTime + dur * 0.72);
+        g.gain.linearRampToValueAtTime(0, ctx.currentTime + dur);
+        const lpf = ctx.createBiquadFilter();
+        lpf.type = 'lowpass'; lpf.frequency.value = 480;
+        osc.connect(lpf); lpf.connect(g);
+        g.connect(out); g.connect(rev);
+        osc.start(); osc.stop(ctx.currentTime + dur + 0.1);
+        this._musicNodes.push(osc);
+      }
+      this._after((dur + beat) * 1000, scheduleSwellB);
+    };
+    scheduleSwellB();
+
+    // 3. Half-time percussion — deep sub-kick on beats 1 & 3 only
+    const kickPatB = [1,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0];
+    let kickStepB = 0;
+    const scheduleKickB = () => {
+      if (this._musicState !== 'combat') return;
+      if (kickPatB[kickStepB % kickPatB.length]) {
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(85, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(22, ctx.currentTime + 0.32);
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.58, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.36);
+        const noise = this._makeNoise(0.06);
+        const nlpf = ctx.createBiquadFilter();
+        nlpf.type = 'lowpass'; nlpf.frequency.value = 180;
+        const ng = ctx.createGain();
+        ng.gain.setValueAtTime(0.28, ctx.currentTime);
+        ng.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.09);
+        osc.connect(g); g.connect(out);
+        noise.connect(nlpf); nlpf.connect(ng); ng.connect(out);
+        osc.start(); osc.stop(ctx.currentTime + 0.38);
+      }
+      kickStepB++;
+      this._after(t16th * 1000, scheduleKickB);
+    };
+    scheduleKickB();
+
+    // 4. Eerie high-register bell melody (sine, long decay) — sparse, haunting
+    const bellNotes = [185, 164.8, 185, 207.7, 185, 155.6, 164.8, 185]; // F#3-E3-F#3-G#3-F#3-Eb3-E3-F#3
+    let bellIdx = 0;
+    const scheduleBellB = () => {
+      if (this._musicState !== 'combat') return;
+      const f = bellNotes[bellIdx % bellNotes.length] * 2; // upper octave
+      bellIdx++;
+      if (Math.random() > 0.28) {
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = f;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0, ctx.currentTime);
+        g.gain.linearRampToValueAtTime(0.065, ctx.currentTime + 0.04);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + beat * 3.0);
+        osc.connect(g); g.connect(out); g.connect(rev);
+        osc.start(); osc.stop(ctx.currentTime + beat * 3.2);
+        this._musicNodes.push(osc);
+      }
+      this._after(beat * (1.5 + Math.random() * 2.5) * 1000, scheduleBellB);
+    };
+    this._after(beat * 4000, scheduleBellB);
+
+    // 5. Occasional atmospheric noise gusts
+    const scheduleAtmosB = () => {
+      if (this._musicState !== 'combat') return;
+      const noise = this._makeNoise(0.3);
+      const bpf = ctx.createBiquadFilter();
+      bpf.type = 'bandpass';
+      bpf.frequency.value = 500 + Math.random() * 900;
+      bpf.Q.value = 6;
       const g = ctx.createGain();
-      g.gain.setValueAtTime(0, ctx.currentTime);
-      g.gain.linearRampToValueAtTime(0.038, ctx.currentTime + 2.5);
-      const lpf = ctx.createBiquadFilter();
-      lpf.type = 'lowpass'; lpf.frequency.value = 700;
-      osc.connect(lpf); lpf.connect(g);
-      g.connect(out); g.connect(rev);
-      osc.start();
+      g.gain.setValueAtTime(0.05 * Math.random(), ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      noise.connect(bpf); bpf.connect(g); g.connect(rev);
+      this._after(2000 + Math.random() * 4500, scheduleAtmosB);
+    };
+    this._after(800, scheduleAtmosB);
+  }
+
+  // ── A PHRYGIAN — Fast, industrial combat (148 BPM) ───────────
+  // Scale: A2=110, Bb2=116.5, C3=130.8, D3=146.8, E3=164.8, F3=174.6, G3=196, A3=220
+  // The flat-2 (Bb against A root) is the most aggressive Phrygian tension interval.
+  // At 148 BPM with off-beat kick accents it feels chaotic and relentless.
+  _startCombatMusicC() {
+    const ctx = this._ctx;
+    const out = this._musicGain;
+    const rev = this._reverbInput;
+    const BPM  = 148;
+    const beat  = 60 / BPM;
+    const t16th = beat / 4;
+
+    // 1. Distorted 8th-note bass: A1 with Phrygian Bb flat-II tension
+    const bassSeqC = [55, 55, 58.3, 55, 55, 73.4, 55, 58.3]; // A1×2, Bb1, A1×2, D2, A1, Bb1
+    let bassStepC = 0;
+    const distC = this._makeDistortCurve(35);
+    const bassBusC = ctx.createGain();
+    bassBusC.gain.value = 0.26;
+    const bassWaveC = ctx.createWaveShaper();
+    bassWaveC.curve = distC;
+    const bassLPC = ctx.createBiquadFilter();
+    bassLPC.type = 'lowpass'; bassLPC.frequency.value = 320;
+    bassWaveC.connect(bassLPC); bassLPC.connect(bassBusC); bassBusC.connect(out);
+
+    const scheduleBassC = () => {
+      if (this._musicState !== 'combat') return;
+      const f = bassSeqC[bassStepC % bassSeqC.length];
+      bassStepC++;
+      // Occasional one-bar rest for breathing room
+      if (bassStepC % (bassSeqC.length * 6) === 0) {
+        this._after(beat * 2 * 1000, scheduleBassC);
+        return;
+      }
+      const osc = ctx.createOscillator();
+      osc.type = 'sawtooth'; osc.frequency.value = f;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.95, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + beat * 0.88);
+      osc.connect(g); g.connect(bassWaveC);
+      osc.start(); osc.stop(ctx.currentTime + beat);
       this._musicNodes.push(osc);
-    }
+      this._after(beat * 1000, scheduleBassC);
+    };
+    scheduleBassC();
+
+    // 2. Driving kick — 4-on-floor + off-beat accents (syncopated)
+    const kickPatC = [1,0,0,1, 0,0,1,0, 1,0,0,1, 0,1,0,0];
+    let kickStepC = 0;
+    const scheduleKickC = () => {
+      if (this._musicState !== 'combat') return;
+      if (kickPatC[kickStepC % kickPatC.length]) {
+        const noise = this._makeNoise(0.06);
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.58, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.07);
+        const lpf = ctx.createBiquadFilter();
+        lpf.type = 'lowpass'; lpf.frequency.value = 145;
+        noise.connect(lpf); lpf.connect(g); g.connect(out);
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(145, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(32, ctx.currentTime + 0.055);
+        const og = ctx.createGain();
+        og.gain.setValueAtTime(0.52, ctx.currentTime);
+        og.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.065);
+        osc.connect(og); og.connect(out);
+        osc.start(); osc.stop(ctx.currentTime + 0.07);
+        this._musicNodes.push(osc);
+      }
+      kickStepC++;
+      this._after(t16th * 1000, scheduleKickC);
+    };
+    scheduleKickC();
+
+    // 3. Snare on 2 & 4 with occasional late-bar double
+    const snarePatC = [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,1,0];
+    let snareStepC = 0;
+    const scheduleSnareC = () => {
+      if (this._musicState !== 'combat') return;
+      if (snarePatC[snareStepC % snarePatC.length]) {
+        const noise = this._makeNoise(0.11);
+        const bpf = ctx.createBiquadFilter();
+        bpf.type = 'bandpass'; bpf.frequency.value = 265; bpf.Q.value = 1.6;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.38, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.11);
+        noise.connect(bpf); bpf.connect(g); g.connect(out);
+      }
+      snareStepC++;
+      this._after(t16th * 1000, scheduleSnareC);
+    };
+    scheduleSnareC();
+
+    // 4. Harsh square arpeggio — tritone-heavy Phrygian pattern
+    const arpGroupsC = [
+      [110,   155.6, 185,   220  ],  // A2-Eb3-F#3-A3  (tritone from A)
+      [116.5, 164.8, 196,   233.1],  // Bb2-E3-G3-Bb3  (Phrygian flat-II)
+      [110,   146.8, 185,   220  ],  // A2-D3-F#3-A3   (Am)
+      [73.4,  110,   155.6, 207.7],  // D2-A2-Eb3-Ab3  (dim7 cloud)
+    ];
+    let arpGrpC = 0, arpNoteC = 0;
+    const arpBusC = ctx.createGain();
+    arpBusC.gain.value = 0.085;
+    arpBusC.connect(out);
+
+    const scheduleArpC = () => {
+      if (this._musicState !== 'combat') return;
+      const grp = arpGroupsC[arpGrpC % arpGroupsC.length];
+      const f = grp[arpNoteC % grp.length];
+      arpNoteC++;
+      if (arpNoteC % grp.length === 0) arpGrpC++;
+      const osc = ctx.createOscillator();
+      osc.type = 'square';
+      osc.frequency.value = f * (arpNoteC % 8 < 2 ? 0.5 : 1);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.85, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t16th * 0.72);
+      const lpf = ctx.createBiquadFilter();
+      lpf.type = 'bandpass'; lpf.frequency.value = f * 2.5; lpf.Q.value = 2.0;
+      osc.connect(lpf); lpf.connect(g); g.connect(arpBusC);
+      osc.start(); osc.stop(ctx.currentTime + t16th);
+      this._musicNodes.push(osc);
+      this._after(t16th * 1000, scheduleArpC);
+    };
+    scheduleArpC();
+
+    // 5. Dark pad swells — heavily detuned sawtooth for dissonant mass
+    const padVoicingsC = [
+      [55,   110,   146.8, 196  ],  // A1-A2-D3-G3   (Am7sus4)
+      [58.3, 116.5, 155.6, 207.7],  // Bb1-Bb2-Eb3-Ab3 (Bbm — flat-II swell)
+    ];
+    let padIdxC = 0;
+    const schedulePadC = () => {
+      if (this._musicState !== 'combat') return;
+      const freqs = padVoicingsC[padIdxC % padVoicingsC.length];
+      padIdxC++;
+      const dur = beat * 12;
+      for (const f of freqs) {
+        const osc = ctx.createOscillator();
+        osc.type = 'sawtooth';
+        osc.frequency.value = f;
+        osc.detune.value = (Math.random() - 0.5) * 18; // heavy detune = more dissonant
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0, ctx.currentTime);
+        g.gain.linearRampToValueAtTime(0.030, ctx.currentTime + dur * 0.22);
+        g.gain.setValueAtTime(0.030, ctx.currentTime + dur * 0.78);
+        g.gain.linearRampToValueAtTime(0, ctx.currentTime + dur);
+        const lpf = ctx.createBiquadFilter();
+        lpf.type = 'lowpass'; lpf.frequency.value = 580;
+        osc.connect(lpf); lpf.connect(g);
+        g.connect(out); g.connect(rev);
+        osc.start(); osc.stop(ctx.currentTime + dur + 0.1);
+        this._musicNodes.push(osc);
+      }
+      this._after((dur + beat) * 1000, schedulePadC);
+    };
+    schedulePadC();
   }
 
   // ── Stings ────────────────────────────────────────────────────

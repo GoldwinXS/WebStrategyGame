@@ -14,7 +14,7 @@
   <!-- Three.js from CDN -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=20260324w">
 </head>
 <body>
   <!-- Three.js renders here — always visible -->
@@ -130,12 +130,56 @@
             <h3>👾 FACTIONS</h3>
             <ul>
               <li><span class="keth">Keth'vari</span> — Organic bio-ships, fast and swarming</li>
-              <li><span class="shard">Shard Collective</span> — Crystalline, powerful shields</li>
+              <li><span class="shard">Shard Collective</span> — Crystalline, heavily armored</li>
               <li><span class="lev">Leviathans</span> — Ancient creatures, titanic scale</li>
             </ul>
           </div>
         </div>
         <button class="btn-primary" id="btn-help-back">BACK TO MENU</button>
+      </div>
+    </div>
+
+    <!-- ── FLEET BUILDER ─────────────────────────── -->
+    <div id="screen-fleetbuilder" class="screen">
+      <div class="screen-panel fleet-builder">
+        <div class="fleet-builder-header">
+          <h2>FLEET COMPOSITION</h2>
+          <div class="fleet-budget-display">
+            BUDGET: <span id="fb-budget-used">0</span> / <span id="fb-budget-total">1600</span> pts
+            <div class="fleet-budget-bar"><div id="fb-budget-fill" class="fleet-budget-fill"></div></div>
+          </div>
+        </div>
+        <div class="fleet-builder-main">
+          <div id="fb-ship-grid" class="fb-ship-grid"><!-- ship cards injected here --></div>
+          <!-- Ship preview + upgrade pane -->
+          <div class="fb-preview-pane" id="fb-preview-pane">
+            <canvas id="fb-preview-canvas" width="260" height="200"></canvas>
+            <div id="fb-preview-info" class="fb-preview-info">
+              <div class="fb-preview-placeholder">Hover a ship to preview</div>
+            </div>
+            <div id="fb-upgrades-panel" class="fb-upgrades-panel">
+              <div class="fb-upg-empty">Select a ship in your fleet to equip modules</div>
+            </div>
+          </div>
+          <div class="fb-roster">
+            <h3>YOUR FLEET <span id="fb-roster-count">0/6</span></h3>
+            <div id="fb-roster-list" class="fb-roster-list"></div>
+            <div class="fb-roster-footer">
+              <div id="fb-constraint-msg" class="fb-constraint-msg"></div>
+              <button id="fb-deploy" class="btn btn-primary" disabled>DEPLOY FLEET</button>
+              <button id="fb-cancel" class="btn btn-secondary">CANCEL</button>
+            </div>
+          </div>
+        </div>
+        <!-- Slot Picker Overlay (shown when installing a weapon module) -->
+        <div id="fb-slot-picker" class="fb-slot-picker-overlay" style="display:none">
+          <div class="fb-slot-picker-inner">
+            <div class="fb-slot-picker-title">Select Turret Slot</div>
+            <div class="fb-slot-picker-subtitle" id="fb-slot-picker-subtitle"></div>
+            <div class="fb-slot-picker-list" id="fb-slot-picker-list"></div>
+            <button class="fb-slot-picker-cancel" id="fb-slot-picker-cancel">Cancel</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -153,9 +197,9 @@
         <div id="fleet-mini-icons" class="fleet-mini"></div>
       </div>
       <div id="campaign-map-container">
-        <!-- Map rendered in render.js or via UI manager -->
         <canvas id="map-canvas"></canvas>
         <div id="map-nodes"></div>
+        <div class="map-guide">Click a <strong>glowing node</strong> to navigate your fleet there</div>
       </div>
       <div class="campaign-footer">
         <button class="btn-ghost small" id="btn-view-fleet">VIEW FLEET</button>
@@ -241,6 +285,146 @@
       </div>
     </div>
 
+    <!-- ── COMBAT TUTORIAL OVERLAY ──────────────── -->
+    <div id="combat-tutorial" class="combat-tutorial hidden">
+      <div class="tut-inner">
+        <div class="tut-title">HOW TO FIGHT</div>
+        <div class="tut-steps">
+          <div class="tut-step"><span class="tut-key">CLICK YOUR SHIP</span><span>Select it — blue ships are yours</span></div>
+          <div class="tut-step"><span class="tut-key">CLICK ENEMY</span><span>Set target — your ship auto-fires</span></div>
+          <div class="tut-step"><span class="tut-key">CLICK OCEAN</span><span>Order your selected ship to move there</span></div>
+          <div class="tut-step"><span class="tut-key">SPACE</span><span>Tactical pause — issue orders freely</span></div>
+          <div class="tut-step"><span class="tut-key">Q / E</span><span>Ascend / Descend in the water column</span></div>
+        </div>
+        <div class="tut-objective">OBJECTIVE: Destroy all enemy ships<br><span class="tut-warn">Your flagship is irreplaceable — if it's destroyed, the run ends.</span></div>
+        <button class="btn-primary" id="btn-tut-dismiss">BEGIN COMBAT ⚔</button>
+      </div>
+    </div>
+
+    <!-- ── TACTICAL MAP OVERLAY ───────────────────── -->
+    <div id="tactical-map" class="tactical-map hidden">
+      <div class="tac-header">
+        <span class="tac-title">TACTICAL MAP</span>
+        <span class="tac-coords" id="tac-coords"></span>
+        <span class="tac-hint">[M] to close · Click: move · Ctrl+Click: attack</span>
+      </div>
+      <canvas id="tac-canvas" width="640" height="480"></canvas>
+      <div class="tac-legend">
+        <span style="color:#00e5ff">▲ Friendly</span>
+        <span style="color:#ff4444">▲ Confirmed Contact</span>
+        <span style="color:#ff9100">◇ Last Known Pos</span>
+        <span style="color:#888">? Unknown</span>
+        <span style="color:#455a64">● Terrain</span>
+      </div>
+    </div>
+
+    <!-- ── SHIP DETAIL PANEL ──────────────────────── -->
+    <div id="ship-detail-panel" class="ship-detail-panel hidden">
+      <div class="sdp-header">
+        <span id="sdp-name" class="sdp-name"></span>
+        <span id="sdp-class" class="sdp-class"></span>
+        <button class="sdp-close" id="btn-sdp-close">✕</button>
+      </div>
+      <div class="sdp-body">
+        <div class="sdp-section">
+          <div class="sdp-bar-row"><span>HULL</span><div class="sdp-bar"><div id="sdp-hull-fill" class="sdp-fill hull"></div></div><span id="sdp-hull-val"></span></div>
+          <div class="sdp-stat-row">
+            <span id="sdp-speed">SPD —</span>
+            <span id="sdp-depth">DEPTH —</span>
+            <span id="sdp-heading">HDG —</span>
+          </div>
+        </div>
+        <div class="sdp-section">
+          <div class="sdp-section-title">OVERLAYS</div>
+          <div class="sdp-overlay-btns">
+            <button class="sdp-ovr-btn" id="ovr-weapon-range" title="Toggle weapon range ring">⊙ RANGE</button>
+            <button class="sdp-ovr-btn" id="ovr-sonar" title="Toggle sonar ping range">◎ SONAR</button>
+            <button class="sdp-ovr-btn" id="ovr-visual" title="Toggle visual range">◉ VISUAL</button>
+          </div>
+        </div>
+        <div class="sdp-section">
+          <div class="sdp-section-title">SUBSYSTEMS <span style="font-size:9px;color:#445;font-weight:normal">— CLICK TO TARGET ENEMY</span></div>
+          <div id="sdp-subsystems"></div>
+        </div>
+        <div class="sdp-section">
+          <div class="sdp-section-title">WEAPONS</div>
+          <div id="sdp-weapons"></div>
+          <button class="sdp-dc-btn" id="btn-blind-fire" title="Fire at sensor contacts without full lock" style="margin-top:5px;width:100%">◉ BLIND FIRE: OFF</button>
+        </div>
+        <div class="sdp-section" id="sdp-dc-section">
+          <div class="sdp-section-title">DAMAGE CONTROL <button class="sdp-dc-view-btn" id="btn-open-dc-modal" title="Open full damage control view [V]">⊕ DC VIEW</button></div>
+          <div id="sdp-dc-status"></div>
+          <div class="sdp-dc-btns">
+            <button class="sdp-dc-btn" id="btn-dc-fire" title="Prioritize firefighting">🔥 FIRE PRIORITY</button>
+            <button class="sdp-dc-btn" id="btn-dc-flood" title="Prioritize flooding">💧 FLOOD PRIORITY</button>
+            <button class="sdp-dc-btn" id="btn-dc-hull" title="Prioritize hull repair">⚙ HULL PRIORITY</button>
+          </div>
+        </div>
+        <div class="sdp-section">
+          <div class="sdp-section-title">ORDERS</div>
+          <div id="sdp-orders"></div>
+          <button class="sdp-dc-btn" id="btn-free-move" title="Toggle: ship moves independently from fleet formation" style="margin-top:5px;width:100%">⇄ FREE MOVE: OFF</button>
+          <button class="sdp-dc-btn" id="btn-evade-mode" title="Toggle: ship weaves laterally to throw off targeting. Slower to destination. [X]" style="margin-top:4px;width:100%">↯ EVASIVE: OFF</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── DAMAGE CONTROL MODAL ───────────────────── -->
+    <div id="dc-modal" class="dc-modal hidden">
+      <div class="dc-modal-inner">
+        <div class="dc-modal-header">
+          <div class="dc-modal-title-col">
+            <span id="dc-ship-name" class="dc-ship-name"></span>
+            <span id="dc-ship-class" class="dc-ship-class"></span>
+          </div>
+          <button class="dc-close" id="btn-dc-modal-close">✕ CLOSE</button>
+        </div>
+        <div class="dc-modal-body">
+          <div class="dc-preview-col">
+            <canvas id="dc-preview-canvas" width="300" height="260"></canvas>
+            <div class="dc-condition-label" id="dc-condition-label">CONDITION: NOMINAL</div>
+          </div>
+          <div class="dc-status-col">
+            <div class="dc-status-section">
+              <div class="dc-section-title">HULL INTEGRITY</div>
+              <div id="dc-hull-bar-row" class="dc-bar-row">
+                <div class="dc-bar-bg"><div id="dc-hull-bar-fill" class="dc-bar-fill"></div></div>
+                <span id="dc-hull-val" class="dc-val"></span>
+              </div>
+            </div>
+            <div class="dc-status-section">
+              <div class="dc-section-title">ACTIVE FIRES</div>
+              <div id="dc-fires-list" class="dc-fires-list"></div>
+            </div>
+            <div class="dc-status-section">
+              <div class="dc-section-title">FLOODING</div>
+              <div class="dc-bar-row">
+                <div class="dc-bar-bg flood"><div id="dc-flood-bar-fill" class="dc-bar-fill flood"></div></div>
+                <span id="dc-flood-val" class="dc-val"></span>
+              </div>
+              <div id="dc-breach-status" class="dc-breach-status"></div>
+            </div>
+            <div class="dc-status-section">
+              <div class="dc-section-title">DC TEAMS <span id="dc-crew-count" class="dc-crew-count"></span></div>
+              <div id="dc-teams-list" class="dc-teams-list"></div>
+              <div class="dc-section-title" style="margin-top:8px">PRIORITY</div>
+              <div class="dc-prio-row">
+                <button class="dc-prio-btn" id="dc-prio-fire" data-prio="fire">🔥 FIRE</button>
+                <button class="dc-prio-btn" id="dc-prio-breach" data-prio="breach">⚠ BREACH</button>
+                <button class="dc-prio-btn" id="dc-prio-flood" data-prio="flood">💧 FLOOD</button>
+                <button class="dc-prio-btn" id="dc-prio-hull" data-prio="hull">⚙ HULL</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tac view overlay indicator (outside hud-combat so it shows during tac view) -->
+    <div id="tac-view-indicator" style="display:none;position:fixed;top:12px;left:50%;transform:translateX(-50%);background:rgba(0,40,80,0.82);border:1px solid #0af;border-radius:4px;padding:4px 18px;font:bold 13px/20px monospace;color:#0af;letter-spacing:2px;z-index:60;align-items:center;gap:10px;">
+      ⊙ TACTICAL VIEW &nbsp;<span style="font-weight:normal;font-size:10px;color:#79c;letter-spacing:1px;">WASD/drag: pan · Scroll: zoom · Right-drag: orbit · Space/M: exit</span>
+    </div>
+
     <!-- ── COMBAT HUD ─────────────────────────────── -->
     <div id="hud-combat" class="hud hidden">
       <div class="hud-top">
@@ -248,6 +432,7 @@
         <div class="hud-center">
           <div id="pause-status" class="pause-status"></div>
           <button id="btn-pause-combat" class="btn-pause">⏸ PAUSE</button>
+          <div id="hud-objective" class="hud-objective"></div>
         </div>
         <div class="hud-right">
           <div id="combat-timer" class="combat-timer">00:00</div>
@@ -278,7 +463,15 @@
         <div class="hud-btns">
           <button class="btn-hud" id="btn-all-stop">ALL STOP</button>
           <button class="btn-hud" id="btn-select-all">SELECT ALL</button>
+          <span class="hud-btn-divider"></span>
+          <button class="btn-hud btn-fleet-cmd" id="btn-fleet-free-move" title="Toggle formation mode for all selected ships">⇄ FREE MOVE: OFF</button>
+          <button class="btn-hud btn-fleet-cmd" id="btn-fleet-blind-fire" title="Toggle blind fire for all selected ships">◉ BLIND FIRE: OFF</button>
+          <span class="hud-btn-divider"></span>
+          <button class="btn-hud btn-ping" id="btn-active-sonar">PING [F]</button>
+          <button class="btn-hud" id="btn-arc-overlay" title="Toggle firing arc overlay [A]">ARCS [A]: ON</button>
+          <button class="btn-hud" id="btn-tacmap">TACMAP [SPACE]</button>
         </div>
+        <div id="combat-alert" class="combat-alert hidden"></div>
       </div>
     </div>
 
@@ -334,12 +527,12 @@
   </div><!-- /#ui -->
 
   <!-- Game scripts (order matters) -->
-  <script src="js/data.js"></script>
-  <script src="js/engine.js"></script>
-  <script src="js/campaign.js"></script>
-  <script src="js/render.js"></script>
-  <script src="js/audio.js"></script>
-  <script src="js/ui.js"></script>
-  <script src="js/game.js"></script>
+  <script src="js/data.js?v=20260324w"></script>
+  <script src="js/engine.js?v=20260324w"></script>
+  <script src="js/campaign.js?v=20260324w"></script>
+  <script src="js/render.js?v=20260324w"></script>
+  <script src="js/audio.js?v=20260324w"></script>
+  <script src="js/ui.js?v=20260324w"></script>
+  <script src="js/game.js?v=20260324w"></script>
 </body>
 </html>

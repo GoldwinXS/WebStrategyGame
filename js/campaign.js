@@ -35,15 +35,69 @@ class Campaign {
         isFlagship: s.isFlagship || false,
         hull: tpl.maxHull,
         maxHull: tpl.maxHull,
-        shields: tpl.maxShields,
-        maxShields: tpl.maxShields,
-        shieldRate: tpl.shieldRate,
         armor: tpl.armor,
         maxSpeed: tpl.maxSpeed,
         upgrades: [],
         xp: 0,
         level: 1,
       };
+    });
+
+    c.nodes = c._generateSectorMap(0);
+    c.currentNodeId = c.nodes.find(n => n.type === 'START').id;
+    c.visitedNodes = new Set([c.currentNodeId]);
+    return c;
+  }
+
+  static newRunWithFleet(chosenFleet) {
+    const c = new Campaign();
+    c.sector = 0;
+    c.credits = CAMPAIGN_CONFIG.startCredits;
+
+    // Build fleet from the provided array of {templateId, name, modules, moduleSlotIds}
+    c.playerFleetData = chosenFleet.map(s => {
+      const tpl = SHIP_TEMPLATES[s.templateId];
+      const sd = {
+        templateId: s.templateId,
+        name: s.name,
+        hull: tpl.maxHull,
+        maxHull: tpl.maxHull,
+        armor: tpl.armor,
+        maxSpeed: tpl.maxSpeed,
+        upgrades: [],
+        modules: [],
+        xp: 0,
+        level: 1,
+      };
+      // Apply pre-game modules from fleet builder
+      const moduleSlotIds = s.moduleSlotIds || [];
+      const extraWeaponSlotIds = [];
+      for (let mi = 0; mi < (s.modules || []).length; mi++) {
+        const modId = s.modules[mi];
+        const slotId = moduleSlotIds[mi] || null;
+        const mod = MODULE_DATA[modId];
+        if (!mod) continue;
+        const ship = Ship.fromSaveData(sd);
+        if (!ship) continue;
+        const wBefore = ship.weapons.length;
+        mod.apply(ship);
+        // Track slot IDs for each weapon added by this module
+        const added = ship.weapons.length - wBefore;
+        for (let j = 0; j < added; j++) extraWeaponSlotIds.push(slotId);
+        sd.hull       = ship.hull;
+        sd.maxHull    = ship.maxHull;
+        sd.armor      = ship.armor;
+        sd.maxSpeed   = ship.maxSpeed;
+        sd.depthRate  = ship.depthRate;
+        sd.ewStrength = ship.ewStrength;
+        sd.detectRange= ship.detectRange;
+        sd.stealthRating = ship.stealthRating;
+        sd.hullRegen  = ship.hullRegen;
+        sd.modules.push(modId);
+        sd.weaponIds  = ship.weapons.map(w => w.id);
+      }
+      if (extraWeaponSlotIds.length > 0) sd.extraWeaponSlotIds = extraWeaponSlotIds;
+      return sd;
     });
 
     c.nodes = c._generateSectorMap(0);
@@ -227,16 +281,10 @@ class Campaign {
       const sd = this.playerFleetData.find(d => d.name === ps.name);
       if (!sd) continue;
       if (ps.isDestroyed) {
-        // Ship is lost if not flagship
-        if (!ps.isFlagship) {
-          const idx = this.playerFleetData.indexOf(sd);
-          if (idx !== -1) this.playerFleetData.splice(idx, 1);
-        } else {
-          sd.hull = 1; // Flagship barely survives
-        }
+        const idx = this.playerFleetData.indexOf(sd);
+        if (idx !== -1) this.playerFleetData.splice(idx, 1);
       } else {
         sd.hull = ps.hull;
-        sd.shields = ps.shields;
         sd.xp = (sd.xp || 0) + Math.floor(stats.xpEarned / combatEngine.playerShips.length);
         // Level up check
         const xpNeeded = sd.level * 100;
@@ -262,7 +310,6 @@ class Campaign {
     // Repair all ships
     for (const sd of this.playerFleetData) {
       sd.hull = Math.min(sd.hull + Math.round(sd.maxHull * 0.4), sd.maxHull);
-      sd.shields = sd.maxShields;
     }
   }
 
@@ -277,9 +324,6 @@ class Campaign {
     // Sync back
     sd.hull = ship.hull;
     sd.maxHull = ship.maxHull;
-    sd.shields = ship.shields;
-    sd.maxShields = ship.maxShields;
-    sd.shieldRate = ship.shieldRate;
     sd.armor = ship.armor;
     sd.maxSpeed = ship.maxSpeed;
     if (!upgrade.consumable) sd.upgrades.push(upgrade.id);
@@ -310,13 +354,11 @@ class Campaign {
     // Apply module effects
     const ship = Ship.fromSaveData(sd);
     if (!ship) return { ok:false, reason:'Cannot load ship' };
+    const wBefore = ship.weapons.length;
     mod.apply(ship);
     // Sync stats back
     sd.hull       = ship.hull;
     sd.maxHull    = ship.maxHull;
-    sd.shields    = ship.shields;
-    sd.maxShields = ship.maxShields;
-    sd.shieldRate = ship.shieldRate;
     sd.armor      = ship.armor;
     sd.maxSpeed   = ship.maxSpeed;
     sd.depthRate  = ship.depthRate;
@@ -326,6 +368,11 @@ class Campaign {
     sd.hullRegen  = ship.hullRegen;
     sd.modules    = sd.modules || [];
     sd.modules.push(mod.id);
+    // Track slot IDs for new weapons (null = auto/unassigned for in-game purchases)
+    if (ship.weapons.length > wBefore) {
+      if (!sd.extraWeaponSlotIds) sd.extraWeaponSlotIds = [];
+      for (let i = wBefore; i < ship.weapons.length; i++) sd.extraWeaponSlotIds.push(null);
+    }
     // Persist weapon changes via weaponIds list
     sd.weaponIds  = ship.weapons.map(w => w.id);
 
@@ -356,9 +403,6 @@ class Campaign {
       isFlagship: false,
       hull: tpl.maxHull,
       maxHull: tpl.maxHull,
-      shields: tpl.maxShields,
-      maxShields: tpl.maxShields,
-      shieldRate: tpl.shieldRate,
       armor: tpl.armor,
       maxSpeed: tpl.maxSpeed,
       upgrades: [],
