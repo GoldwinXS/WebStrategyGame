@@ -117,7 +117,7 @@ class Ship {
         if (!slotId) return;
         const w = this.weapons[baseCount + i];
         const targetSlot = this.slots.find(s => s.id === slotId);
-        if (w && targetSlot && !w._slot) { w._slot = targetSlot; }
+        if (w && targetSlot && !w._slot) { w._slot = targetSlot; targetSlot.weapon = w; targetSlot.weaponId = w.id; }
       });
     }
     this.dotEffects = [];   // [{dmg, timer, tickTimer}]
@@ -207,7 +207,7 @@ class Ship {
   }
 
   setDepthTarget(d) {
-    this.targetDepth = Math.max(0, Math.min(WORLD_DEPTH, d));
+    this.targetDepth = Math.max(0, Math.min(WORLD_DEPTH - 100, d));
   }
 
   // Convert a slot's ship-local position to world 2D coordinates.
@@ -230,14 +230,16 @@ class Ship {
     const hullDmg = Math.max(1, remaining * hdmg - this.armor);
     this.hull -= hullDmg;
     if (!isDot) this.hitFlashTimer = 0.1;
-    // Any meaningful hit can start fires and cause hull breaches / flooding
-    if (!isDot && hullDmg > this.maxHull * 0.04) {
-      const severity = Math.ceil(hullDmg / (this.maxHull * 0.04));
-      if (Math.random() < Math.min(0.70, severity * 0.28)) this.startFire(severity);
-      if (Math.random() < Math.min(0.55, severity * 0.20)) this.addBreach();
+    // System damage — the primary threat from weapon hits.
+    // Low threshold + high chance means every meaningful hit causes DC crises.
+    // Direct hull damage is secondary; fires/floods/stalls are what kills ships.
+    if (!isDot && hullDmg >= 5) {
+      const severity = Math.min(3, Math.ceil(hullDmg / Math.max(8, this.maxHull * 0.04)));
+      if (Math.random() < Math.min(0.75, severity * 0.32)) this.startFire(severity);
+      if (Math.random() < Math.min(0.50, severity * 0.18)) this.addBreach();
     }
-    // Critical system damage on heavy single hits (>10% max hull)
-    if (!isDot && hullDmg > this.maxHull * 0.10) {
+    // Heavy system damage on bigger hits (>8% max hull, minimum 12 dmg)
+    if (!isDot && hullDmg > this.maxHull * 0.08 && hullDmg >= 12) {
       // Weapon system damage: random weapon disabled
       if (Math.random() < 0.45 && this.weapons.length > 0) {
         const w = this.weapons[Math.floor(Math.random() * this.weapons.length)];
@@ -257,7 +259,7 @@ class Ship {
       }
       // Turret damage: 20% chance to damage a random armed slot
       if (this.slots && this.slots.length > 0 && Math.random() < 0.20) {
-        const armedSlots = this.slots.filter(s => s.health > 0);
+        const armedSlots = this.slots.filter(s => s.health > 0 && s.weapon);
         if (armedSlots.length > 0) {
           const s = armedSlots[Math.floor(Math.random() * armedSlots.length)];
           s.health = Math.max(0, s.health - (25 + Math.random() * 25));
@@ -370,19 +372,20 @@ class Ship {
     // EW jamming decay
     if (this.ewJammedTimer > 0) this.ewJammedTimer -= dt;
 
-    // Depth movement (ascent/descent)
+    // Depth movement (ascent/descent) — max depth keeps ships above seafloor terrain
+    const MAX_SHIP_DEPTH = WORLD_DEPTH - 100;
     if (this._buoyancyDamaged) {
       // Uncontrolled depth drift — overrides normal depth control
       this.depth += this._buoyancyDriftRate * dt;
-      this.depth = Math.max(0, Math.min(WORLD_DEPTH, this.depth));
+      this.depth = Math.max(0, Math.min(MAX_SHIP_DEPTH, this.depth));
       // Hitting the surface or floor stops the drift but damage persists
-      if (this.depth <= 0 || this.depth >= WORLD_DEPTH) {
+      if (this.depth <= 0 || this.depth >= MAX_SHIP_DEPTH) {
         this._buoyancyDriftRate = 0;
       }
     } else if (Math.abs(this.targetDepth - this.depth) > 0.5) {
       const diff = this.targetDepth - this.depth;
       this.depth += Math.sign(diff) * Math.min(Math.abs(diff), this.depthRate * dt);
-      this.depth = Math.max(0, Math.min(WORLD_DEPTH, this.depth));
+      this.depth = Math.max(0, Math.min(MAX_SHIP_DEPTH, this.depth));
     }
 
     // DOT effects
@@ -494,8 +497,8 @@ class Ship {
       for (const t of terrain) {
         const d2 = dist(this.x, this.y, t.x, t.y);
         if (d2 < t.radius + this.size) {
-          if (t.type === 'island') {
-            // Push out of island
+          if (t.type === 'island' || t.type === 'rock_pillar') {
+            // Push out of solid obstacle
             const pushAng = angleToward(t.x, t.y, this.x, this.y);
             const push = (t.radius + this.size - d2) + 1;
             this.x += Math.sin(pushAng) * push;
@@ -542,10 +545,10 @@ class Ship {
     const jam = (this.ewJammedTimer > 0) ? (this.ewJammedStrength / 100) : 0;
     const effectiveRange = w.range * Math.max(0.4, 1 - jam * 0.5);
     if (d > effectiveRange) return false;
-    // Island line-of-sight block (not for torpedoes which can go around)
+    // Blocking terrain LOS check (not for torpedoes which can go around)
     if (w.type !== 'torpedo' && this._terrain) {
       for (const t of this._terrain) {
-        if (t.type === 'island' &&
+        if (t.blocking &&
             lineIntersectsCircle(this.x, this.y, target.x, target.y, t.x, t.y, t.radius * 0.8))
           return false;
       }
@@ -578,12 +581,11 @@ class Ship {
   }
 
   _updateDamageControl(dt) {
-    // ── Fire damage ───────────────────────────────────────────────
+    // ── Fire damage — flat rate so larger ships are genuinely tankier ──
     for (let i = this.fires.length - 1; i >= 0; i--) {
       const fire = this.fires[i];
       fire.timer -= dt;
-      // Fire deals direct hull damage (bypasses shields and armor)
-      this.hull = Math.max(0, this.hull - fire.severity * 2.0 * dt);
+      this.hull = Math.max(0, this.hull - fire.severity * 1.8 * dt);
       if (fire.timer <= 0) this.fires.splice(i, 1);
     }
     this.isOnFire = this.fires.length > 0;
@@ -593,8 +595,8 @@ class Ship {
       this.flooding = Math.min(1, this.flooding + this.floodRate * dt);
     }
     if (this.flooding > 0) {
-      // Heavy flooding deals increasing hull damage
-      const floodDmg = Math.max(0, this.flooding - 0.25) * 5.0 * dt;
+      // Heavy flooding — flat rate so bigger hulls absorb more
+      const floodDmg = Math.max(0, this.flooding - 0.25) * 4.5 * dt;
       this.hull = Math.max(0, this.hull - floodDmg);
       // Speed penalty from drag/ballast (up to 55% at max flood)
       this._floodSpeedPenalty = this.flooding * 0.55;
@@ -642,10 +644,10 @@ class Ship {
           this._buoyancyDriftRate = 0;
         } else if (task === 'turret' && this.slots) {
           // Crew brings a destroyed turret back online (to 30 hp; passive repair takes over)
-          const destroyed = this.slots.filter(s => s.health === 0);
+          const destroyed = this.slots.filter(s => s.health === 0 && s.weapon);
           if (destroyed.length > 0) destroyed[0].health = 30;
         } else if (task === 'hull') {
-          this.hull = Math.min(this.maxHull, this.hull + this.maxHull * 0.06);
+          this.hull = Math.min(this.maxHull, this.hull + Math.max(25, this.maxHull * 0.07));
         }
         this.crewBusy.splice(i, 1);
       }
@@ -670,7 +672,7 @@ class Ship {
         } else if (t === 'buoyancy' && this._buoyancyDamaged) {
           this.crewBusy.push({ task: 'buoyancy', timer: 10 + Math.random() * 6 });
           assigned = true; break;
-        } else if (t === 'turret' && this.slots && this.slots.some(s => s.health === 0)) {
+        } else if (t === 'turret' && this.slots && this.slots.some(s => s.health === 0 && s.weapon)) {
           this.crewBusy.push({ task: 'turret', timer: 12 + Math.random() * 6 });
           assigned = true; break;
         } else if (t === 'flood' && this.hullBreaches > 0) {
@@ -698,8 +700,15 @@ class Ship {
       armor: this.armor,
       maxSpeed: this.maxSpeed,
       upgrades: [...this.upgrades],
+      modules: [...(this.modules || [])],
+      weaponIds: this.weapons.map(w => w.id),
       xp: this.xp,
       level: this.level,
+      depthRate: this.depthRate,
+      ewStrength: this.ewStrength,
+      detectRange: this.detectRange,
+      stealthRating: this.stealthRating,
+      hullRegen: this.hullRegen || undefined,
       slotHealths: this.slots ? this.slots.map(s => s.health) : undefined,
       extraWeaponSlotIds: this._extraWeaponSlotIds || undefined,
     };
@@ -1130,7 +1139,7 @@ function updateAI(ship, playerShips, dt, terrain) {
         // Use island terrain as cover when hull is low
         let usedCover = false;
         if (hullPct < 0.45 && terrain && terrain.length > 0) {
-          const cover = terrain.find(t => t.type === 'island' && dist(ship.x, ship.y, t.x, t.y) < 1400);
+          const cover = terrain.find(t => t.blocking && dist(ship.x, ship.y, t.x, t.y) < 1400);
           if (cover) {
             // Move to position behind island relative to the target
             const coverAng = angleToward(target.x, target.y, cover.x, cover.y);
@@ -1342,55 +1351,63 @@ class CombatEngine {
 
     switch (this.biome) {
       case 'abyssal':
-        // Open abyss: sparse islands, deep algae, very open
+        // Open abyss: sparse islands, rock pillars, deep algae
         for (let i = 0; i < 2; i++) add('island', rand(2000,6000), rand(800,5200), rand(0.5,0.9));
+        for (let i = 0; i < 2; i++) add('rock_pillar', rand(2500,5500), rand(1000,5000), rand(0.7,1.1));
         add('algae_bloom', midX, midY, rand(1.0, 1.6));
         if (Math.random() < 0.5) add('vent', rand(3000,5000), rand(1000,4500), rand(0.8,1.2));
         break;
 
       case 'vent_field':
-        // Clustered vents + narrow island lanes
+        // Clustered vents + narrow island lanes + rock cover
         for (let i = 0; i < 5; i++)
           add('vent', midX + rand(-900,900), midY + rand(-700,700), rand(0.7,1.3));
         add('island', rand(1800,3500), rand(1000,5000), rand(0.6,1.0));
         add('island', rand(4500,6500), rand(1000,5000), rand(0.6,1.0));
+        for (let i = 0; i < 3; i++) add('rock_pillar', rand(2000,6000), rand(1000,5000), rand(0.5,0.9));
         add('algae_bloom', midX + rand(-600,600), midY + rand(-400,400), rand(0.8,1.2));
         break;
 
       case 'kelp_forest':
-        // Dense kelp flanks, limited sightlines
+        // Dense kelp flanks, rock pillars, limited sightlines
         for (let k = 0; k < 4; k++)
           add('kelp', WORLD_W*(0.3+k*0.12) + rand(-300,300), rand(600,5400), rand(0.9,1.4));
         for (let k = 0; k < 2; k++)
           add('algae_bloom', rand(2500,5500), rand(1200,4800), rand(0.7,1.1));
         add('island', midX, midY, rand(0.5,0.8));
+        for (let i = 0; i < 2; i++) add('rock_pillar', rand(2000,6000), rand(1200,4800), rand(0.6,1.0));
         break;
 
       case 'seamount':
-        // Central mountain chain — hard cover, flanking required
+        // Central mountain chain — hard cover, flanking required, scattered pillars
         for (let k = 0; k < 4; k++) {
           const angle = (k / 4) * Math.PI * 2 + rand(-0.3, 0.3);
           add('island', midX + Math.sin(angle)*rand(300,600), midY + Math.cos(angle)*rand(200,500), rand(0.7,1.2));
         }
         add('island', midX, midY, rand(1.0, 1.5)); // big central peak
+        for (let i = 0; i < 3; i++) add('rock_pillar', rand(1500,6500), rand(1000,5000), rand(0.8,1.3));
         add('kelp', rand(1500,3500), rand(1500,4500), rand(0.9,1.2));
         add('kelp', rand(4500,6500), rand(1500,4500), rand(0.9,1.2));
         break;
 
       case 'wreck_field':
-        // Many small islands scattered everywhere — tight corridors
-        for (let i = 0; i < 7; i++)
+        // Many small islands and rock pillars — tight corridors
+        for (let i = 0; i < 5; i++)
           add('island', rand(1800,6200), rand(700,5300), rand(0.35,0.65));
+        for (let i = 0; i < 4; i++)
+          add('rock_pillar', rand(1800,6200), rand(700,5300), rand(0.4,0.8));
         for (let i = 0; i < 2; i++)
           add('algae_bloom', rand(2000,6000), rand(1000,5000), rand(0.6,1.0));
         break;
 
       case 'crystal_caves':
-        // Dense algae blackout zones, small vent clusters
+        // Dense algae blackout zones, small vent clusters, rock pillars
         for (let i = 0; i < 3; i++)
           add('algae_bloom', rand(2000,6000), rand(800,5200), rand(0.8,1.3));
         for (let i = 0; i < 3; i++)
           add('vent', rand(2500,5500), rand(1000,5000), rand(0.7,1.0));
+        for (let i = 0; i < 3; i++)
+          add('rock_pillar', rand(2000,6000), rand(800,5200), rand(0.6,1.0));
         add('island', rand(2500,3500), rand(1000,5000), rand(0.5,0.8));
         add('island', rand(4500,5500), rand(1000,5000), rand(0.5,0.8));
         break;
@@ -1398,6 +1415,7 @@ class CombatEngine {
       default:
         // Generic fallback
         for (let i = 0; i < 3; i++) add('island', rand(2000,6000), rand(800,5200), rand(0.6,1.0));
+        for (let i = 0; i < 2; i++) add('rock_pillar', rand(2500,5500), rand(1000,5000), rand(0.7,1.0));
         add('kelp', midX, midY, rand(0.8,1.2));
     }
   }
@@ -1416,9 +1434,11 @@ class CombatEngine {
     const tvy = -Math.cos(target.angle) * (target.speed || 0);
     let d = Math.hypot(target.x - shooter.x, target.y - shooter.y);
     let tof = d / Math.max(1, pSpeed);
-    // One refinement pass for better accuracy
-    d = Math.hypot(target.x + tvx * tof - shooter.x, target.y + tvy * tof - shooter.y);
-    tof = d / Math.max(1, pSpeed);
+    // Two refinement passes for better accuracy at range
+    for (let pass = 0; pass < 2; pass++) {
+      d = Math.hypot(target.x + tvx * tof - shooter.x, target.y + tvy * tof - shooter.y);
+      tof = d / Math.max(1, pSpeed);
+    }
     return {
       x: target.x + tvx * tof * leadQuality,
       y: target.y + tvy * tof * leadQuality,
@@ -1548,10 +1568,10 @@ class CombatEngine {
       const p = this.projectiles[i];
       if (p.isDestroyed) continue;
 
-      // Island terrain blocks projectiles (cover mechanic)
+      // Blocking terrain destroys projectiles on contact (cover mechanic)
       let terrainBlocked = false;
       for (const t of this.terrain) {
-        if (t.type === 'island' && dist(p.x, p.y, t.x, t.y) < t.radius * 0.68) {
+        if (t.blocking && dist(p.x, p.y, t.x, t.y) < t.radius * 0.68) {
           terrainBlocked = true;
           break;
         }
@@ -1840,7 +1860,7 @@ class CombatEngine {
           }
           if (bestContact) {
             // Add positional error inversely proportional to accuracy
-            const err = (1 - bestContact.accuracy) * 480;
+            const err = (1 - bestContact.accuracy) * 280;
             fireProxy = {
               x: bestContact.rx + (Math.random() - 0.5) * err,
               y: bestContact.ry + (Math.random() - 0.5) * err,
@@ -1967,7 +1987,7 @@ class CombatEngine {
           ping._hitEnemies.add(enemy.id);
           // Check if an island blocks the ping path
           const blocked = this.terrain.some(t =>
-            t.type === 'island' &&
+            t.blocking &&
             lineIntersectsCircle(ping.x, ping.y, enemy.x, enemy.y, t.x, t.y, t.radius * 0.8)
           );
           if (!blocked) this._pingHitEnemy(source, enemy, d, ping.maxRadius);
@@ -2011,9 +2031,9 @@ class CombatEngine {
         const coverFactor  = (() => {
           let f = 1.0;
           for (const t of this.terrain) {
-            if (t.type === 'island' &&
+            if (t.blocking &&
                 lineIntersectsCircle(ps.x, ps.y, enemy.x, enemy.y, t.x, t.y, t.radius * 0.8))
-              return 0;  // fully blocked — island in line of sonar
+              return 0;  // fully blocked — solid terrain in line of sonar
             if (t.type === 'algae_bloom') {
               // Bloom attenuates if ship is inside it OR path passes through it
               const shipInBloom = dist(ps.x, ps.y, t.x, t.y) < t.radius;

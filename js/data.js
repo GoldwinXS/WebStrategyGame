@@ -62,65 +62,74 @@ const SHIP_TEMPLATES = {
   //   arc  — half-angle of fire cone from facing direction (PI = unrestricted)
   skiff: {
     id:'skiff', name:'Skiff', shipClass:'Scout',
-    maxHull:80,
-    armor:0, maxSpeed:150, accel:75, turnRate:3.0, size:16,
+    maxHull:120,
+    armor:2, maxSpeed:110, accel:55, turnRate:2.6, size:16,
     depthRate:90, ewStrength:0, detectRange:1200, stealthRating:30,
+    repairCrews:1,
     color:'#00e5ff', glowColor:'#00bcd4',
     weapons:['pulse_cannon'],
     slots:[
       { id:'s0', label:'Bow Gun',      pos:{x:0,  y:11}, facing:0,            arc:Math.PI*0.75, weaponId:'pulse_cannon' },
+      { id:'s1', label:'Stern Mount',   pos:{x:0,  y:-9}, facing:Math.PI,       arc:Math.PI*0.8,  weaponId:null },
     ],
     cost:120, tier:1,
     desc:'Lightning-fast scout. Thin hull but unmatched speed. High stealth rating.'
   },
   cutter: {
     id:'cutter', name:'Cutter', shipClass:'Light Warship',
-    maxHull:145,
-    armor:2, maxSpeed:115, accel:51, turnRate:2.5, size:22,
+    maxHull:190,
+    armor:4, maxSpeed:84, accel:38, turnRate:2.2, size:22,
     depthRate:72, ewStrength:0, detectRange:900, stealthRating:15,
+    repairCrews:2,
     color:'#29b6f6', glowColor:'#0288d1',
     weapons:['pulse_cannon','pulse_cannon'],
     slots:[
-      { id:'s0', label:'Port Cannon',  pos:{x:-13, y:0},  facing:-Math.PI/2,   arc:Math.PI*0.55, weaponId:'pulse_cannon' },
-      { id:'s1', label:'Stbd Cannon',  pos:{x:13,  y:0},  facing:Math.PI/2,    arc:Math.PI*0.55, weaponId:'pulse_cannon' },
+      { id:'s0', label:'Port Cannon',  pos:{x:-10, y:0},  facing:-Math.PI/2,   arc:Math.PI*0.55, weaponId:'pulse_cannon' },
+      { id:'s1', label:'Stbd Cannon',  pos:{x:10,  y:0},  facing:Math.PI/2,    arc:Math.PI*0.55, weaponId:'pulse_cannon' },
+      { id:'s2', label:'Bow Hardpoint',pos:{x:0,   y:12}, facing:0,            arc:Math.PI*0.7,  weaponId:null },
     ],
     cost:240, tier:2,
     desc:'Versatile light warship. Reliable workhorse of any fleet.'
   },
   frigate: {
     id:'frigate', name:'Frigate', shipClass:'Torpedo Frigate',
-    maxHull:260,
-    armor:5, maxSpeed:90, accel:38, turnRate:2.0, size:28,
+    maxHull:300,
+    armor:6, maxSpeed:66, accel:28, turnRate:1.7, size:28,
     depthRate:58, ewStrength:10, detectRange:1050, stealthRating:10,
+    repairCrews:2,
     color:'#1976d2', glowColor:'#1565c0',
     weapons:['particle_lance','vortex_torpedo'],
     slots:[
       { id:'s0', label:'Bow Lance',    pos:{x:0,  y:17},  facing:0,            arc:Math.PI*0.6,  weaponId:'particle_lance' },
       { id:'s1', label:'Torp Bay',     pos:{x:0,  y:-8},  facing:0,            arc:Math.PI,      weaponId:'vortex_torpedo' },
+      { id:'s2', label:'Stbd Turret',  pos:{x:12, y:6},   facing:Math.PI*0.4,  arc:Math.PI*0.7,  weaponId:null },
     ],
     cost:380, tier:3,
     desc:'Torpedo specialist. Devastating at medium range. Limited torpedo reserves.'
   },
   gunship: {
     id:'gunship', name:'Gunship', shipClass:'Heavy Gunship',
-    maxHull:285,
-    armor:9, maxSpeed:75, accel:30, turnRate:1.8, size:31,
+    maxHull:340,
+    armor:10, maxSpeed:55, accel:22, turnRate:1.5, size:31,
     depthRate:44, ewStrength:5, detectRange:950, stealthRating:5,
+    repairCrews:2,
     color:'#0d47a1', glowColor:'#1a237e',
     weapons:['heavy_cannon','pulse_cannon','pulse_cannon'],
     slots:[
       { id:'s0', label:'Main Battery', pos:{x:0,   y:19}, facing:0,            arc:Math.PI*0.55, weaponId:'heavy_cannon' },
       { id:'s1', label:'Port Gun',     pos:{x:-15, y:4},  facing:-Math.PI*0.45,arc:Math.PI*0.65, weaponId:'pulse_cannon' },
       { id:'s2', label:'Stbd Gun',     pos:{x:15,  y:4},  facing:Math.PI*0.45, arc:Math.PI*0.65, weaponId:'pulse_cannon' },
+      { id:'s3', label:'Aft Mount',    pos:{x:0,   y:-12},facing:Math.PI,       arc:Math.PI*0.7,  weaponId:null },
     ],
     cost:430, tier:3,
     desc:'Triple weapon battery. Superior firepower over durability.'
   },
   cruiser: {
     id:'cruiser', name:'Cruiser', shipClass:'Heavy Cruiser',
-    maxHull:520,
-    armor:13, maxSpeed:62, accel:22, turnRate:1.4, size:39,
+    maxHull:580,
+    armor:14, maxSpeed:46, accel:16, turnRate:1.2, size:39,
     depthRate:48, ewStrength:20, detectRange:1300, stealthRating:0,
+    repairCrews:3,
     color:'#3f51b5', glowColor:'#303f9f',
     weapons:['particle_lance','heavy_cannon','heavy_cannon','vortex_torpedo'],
     slots:[
@@ -128,15 +137,17 @@ const SHIP_TEMPLATES = {
       { id:'s1', label:'Port Battery', pos:{x:-22, y:0},  facing:-Math.PI/2,   arc:Math.PI*0.55, weaponId:'heavy_cannon' },
       { id:'s2', label:'Stbd Battery', pos:{x:22,  y:0},  facing:Math.PI/2,    arc:Math.PI*0.55, weaponId:'heavy_cannon' },
       { id:'s3', label:'Torp Bay',     pos:{x:0,   y:-16},facing:0,            arc:Math.PI,      weaponId:'vortex_torpedo' },
+      { id:'s4', label:'Stbd Deck',    pos:{x:20,  y:10}, facing:Math.PI*0.4,  arc:Math.PI*0.65, weaponId:null },
     ],
     cost:680, tier:4,
     desc:'The backbone of any serious fleet. Balanced and powerful. EW suite included.'
   },
   carrier: {
     id:'carrier', name:'Carrier', shipClass:'Fleet Carrier',
-    maxHull:500,
-    armor:8, maxSpeed:49, accel:17, turnRate:1.2, size:45,
+    maxHull:560,
+    armor:9, maxSpeed:36, accel:12, turnRate:1.0, size:45,
     depthRate:34, ewStrength:35, detectRange:1500, stealthRating:0,
+    repairCrews:3,
     color:'#5c6bc0', glowColor:'#3949ab',
     weapons:['pulse_cannon','pulse_cannon','drone_launcher','ew_jammer'],
     slots:[
@@ -144,15 +155,17 @@ const SHIP_TEMPLATES = {
       { id:'s1', label:'Stbd Defense', pos:{x:25,  y:0},  facing:Math.PI/2,    arc:Math.PI*0.7,  weaponId:'pulse_cannon' },
       { id:'s2', label:'Drone Bay',    pos:{x:0,   y:-4}, facing:0,            arc:Math.PI,      weaponId:'drone_launcher' },
       { id:'s3', label:'EW Array',     pos:{x:0,   y:0},  facing:0,            arc:Math.PI,      weaponId:'ew_jammer' },
+      { id:'s4', label:'Bow Hardpoint',pos:{x:0,   y:18}, facing:0,            arc:Math.PI*0.6,  weaponId:null },
     ],
     cost:780, tier:4,
     desc:'Fleet command ship. Launches combat drones and provides electronic warfare support.'
   },
   dreadnought: {
     id:'dreadnought', name:'Dreadnought', shipClass:'Capital Ship',
-    maxHull:1050,
-    armor:22, maxSpeed:36, accel:13, turnRate:0.75, size:60,
+    maxHull:1100,
+    armor:24, maxSpeed:28, accel:10, turnRate:0.65, size:60,
     depthRate:22, ewStrength:15, detectRange:1450, stealthRating:0,
+    repairCrews:4,
     color:'#7c4dff', glowColor:'#651fff',
     weapons:['plasma_driver','particle_lance','particle_lance','vortex_torpedo','vortex_torpedo'],
     slots:[
@@ -161,6 +174,7 @@ const SHIP_TEMPLATES = {
       { id:'s2', label:'Stbd Lance',   pos:{x:22,  y:12}, facing:Math.PI*0.35, arc:Math.PI*0.55, weaponId:'particle_lance' },
       { id:'s3', label:'Port Tubes',   pos:{x:-20, y:-16},facing:-Math.PI*0.65,arc:Math.PI*0.65, weaponId:'vortex_torpedo' },
       { id:'s4', label:'Stbd Tubes',   pos:{x:20,  y:-16},facing:Math.PI*0.65, arc:Math.PI*0.65, weaponId:'vortex_torpedo' },
+      { id:'s5', label:'Stbd Deck',    pos:{x:62,  y:0},  facing:Math.PI*0.45, arc:Math.PI*0.65, weaponId:null },
     ],
     cost:1200, tier:5,
     desc:'Near-invincible, but ponderous. A weapon of last resort.'
@@ -168,15 +182,17 @@ const SHIP_TEMPLATES = {
 
   destroyer: {
     id:'destroyer', name:'Destroyer', shipClass:'Escort Destroyer',
-    maxHull:200,
-    armor:10, maxSpeed:130, accel:58, turnRate:2.4, size:24,
-    depthRate:70, ewStrength:0, detectRange:950, stealthRating:10,
+    maxHull:260,
+    armor:11, maxSpeed:95, accel:42, turnRate:2.1, size:24,
+    depthRate:70, ewStrength:0, detectRange:1150, stealthRating:10,
+    repairCrews:2,
     color:'#80deea', glowColor:'#00acc1',
     weapons:['ciws','ciws','pulse_cannon'],
     slots:[
-      { id:'s0', label:'Port CIWS',   pos:{x:-11, y:7},  facing:-Math.PI/2,   arc:Math.PI,      weaponId:'ciws' },
-      { id:'s1', label:'Stbd CIWS',   pos:{x:11,  y:7},  facing:Math.PI/2,    arc:Math.PI,      weaponId:'ciws' },
+      { id:'s0', label:'Port CIWS',   pos:{x:-9,  y:7},  facing:-Math.PI/2,   arc:Math.PI,      weaponId:'ciws' },
+      { id:'s1', label:'Stbd CIWS',   pos:{x:9,   y:7},  facing:Math.PI/2,    arc:Math.PI,      weaponId:'ciws' },
       { id:'s2', label:'Bow Gun',     pos:{x:0,   y:14}, facing:0,            arc:Math.PI*0.65, weaponId:'pulse_cannon' },
+      { id:'s3', label:'Aft Turret',  pos:{x:0,   y:-10},facing:Math.PI,       arc:Math.PI*0.7,  weaponId:null },
     ],
     cost:360, tier:3,
     desc:'Fast escort with twin CIWS point-defense turrets. Automatically intercepts incoming torpedoes and drones within 640m. A force-multiplier for any fleet facing torpedo threats.'
@@ -185,41 +201,47 @@ const SHIP_TEMPLATES = {
   // ── Starter-fleet specialist hulls ─────────────────────────────
   recon: {
     id:'recon', name:'Recon', shipClass:'Deep Recon Probe',
-    maxHull:65,
-    armor:0, maxSpeed:190, accel:95, turnRate:3.8, size:14,
+    maxHull:100,
+    armor:1, maxSpeed:140, accel:70, turnRate:3.2, size:14,
     depthRate:105, ewStrength:0, detectRange:2400, stealthRating:65,
+    repairCrews:1,
     color:'#00e5ff', glowColor:'#00bcd4',
     weapons:['pulse_cannon'],
     slots:[
       { id:'s0', label:'Bow Gun',      pos:{x:0,  y:9},  facing:0,            arc:Math.PI*0.8,  weaponId:'pulse_cannon' },
+      { id:'s1', label:'Stern Mount',  pos:{x:0,  y:-7}, facing:Math.PI,       arc:Math.PI*0.8,  weaponId:null },
     ],
     cost:160, tier:2,
     desc:'Extreme-range sensors and near-perfect stealth — but extremely fragile. Your eyes in the deep. Keep it away from combat.'
   },
   longbow: {
     id:'longbow', name:'Longbow', shipClass:'Artillery Escort',
-    maxHull:210,
-    armor:6, maxSpeed:78, accel:30, turnRate:1.7, size:26,
+    maxHull:250,
+    armor:7, maxSpeed:58, accel:22, turnRate:1.4, size:26,
     depthRate:48, ewStrength:0, detectRange:620, stealthRating:0,
+    repairCrews:2,
     color:'#ff9800', glowColor:'#e65100',
     weapons:['rail_driver','pulse_cannon'],
     slots:[
       { id:'s0', label:'Spinal Rail',  pos:{x:0,  y:16}, facing:0,            arc:Math.PI*0.22, weaponId:'rail_driver' },
       { id:'s1', label:'Def Cannon',   pos:{x:0,  y:-9}, facing:Math.PI,      arc:Math.PI*0.75, weaponId:'pulse_cannon' },
+      { id:'s2', label:'Broadside',    pos:{x:10, y:0},  facing:Math.PI/2,    arc:Math.PI*0.6,  weaponId:null },
     ],
     cost:360, tier:3,
     desc:'Long-range kinetic artillery. Hits hard at extreme distance but is nearly blind — needs a spotter to be effective.'
   },
   spectre: {
     id:'spectre', name:'Spectre', shipClass:'EW Platform',
-    maxHull:155,
-    armor:2, maxSpeed:100, accel:44, turnRate:2.3, size:19,
+    maxHull:190,
+    armor:3, maxSpeed:74, accel:32, turnRate:2.0, size:19,
     depthRate:65, ewStrength:65, detectRange:1100, stealthRating:45,
+    repairCrews:2,
     color:'#9c27b0', glowColor:'#6a1b9a',
     weapons:['pulse_cannon','ew_jammer'],
     slots:[
       { id:'s0', label:'Bow Gun',      pos:{x:0,  y:12}, facing:0,            arc:Math.PI*0.75, weaponId:'pulse_cannon' },
       { id:'s1', label:'EW Array',     pos:{x:0,  y:0},  facing:0,            arc:Math.PI,      weaponId:'ew_jammer' },
+      { id:'s2', label:'Stbd Mount',   pos:{x:7,  y:-3}, facing:Math.PI*0.4,  arc:Math.PI*0.7,  weaponId:null },
     ],
     cost:290, tier:3,
     desc:'Electronic warfare specialist. Jams enemy targeting and disrupts their sonar. Lightly armed but very hard to detect. Protect it — its value is in its disruptive field.'
@@ -230,88 +252,118 @@ const ENEMY_TEMPLATES = {
   keth_spore: {
     id:'keth_spore', name:"Keth'vari Spore", faction:'kethvari',
     maxHull:52,
-    armor:0, maxSpeed:165, accel:87, turnRate:3.8, size:15,
+    armor:0, maxSpeed:120, accel:60, turnRate:3.0, size:15,
     depthRate:100, preferredDepth:200, stealthRating:20,
     color:'#ff6d00', glowColor:'#ff3d00',
     weapons:['bio_sting'], ai:'swarm',
+    slots:[
+      { id:'s0', label:'Stinger',       pos:{x:0,  y:8},  facing:0,           arc:Math.PI*0.8,  weaponId:'bio_sting' },
+    ],
     xp:12, credits:18, shape:'keth_spore'
   },
   keth_hunter: {
     id:'keth_hunter', name:"Keth'vari Hunter", faction:'kethvari',
     maxHull:145,
-    armor:2, maxSpeed:122, accel:59, turnRate:2.6, size:21,
+    armor:2, maxSpeed:90, accel:42, turnRate:2.2, size:21,
     depthRate:82, preferredDepth:325, stealthRating:15,
     color:'#e64a19', glowColor:'#bf360c',
     weapons:['bio_sting','acid_torpedo'], ai:'aggressive',
+    slots:[
+      { id:'s0', label:'Bow Sting',     pos:{x:0,  y:12}, facing:0,           arc:Math.PI*0.7,  weaponId:'bio_sting' },
+      { id:'s1', label:'Acid Sac',      pos:{x:0,  y:-6}, facing:Math.PI*0.3, arc:Math.PI*0.8,  weaponId:'acid_torpedo' },
+    ],
     xp:28, credits:50, shape:'keth_hunter'
   },
   keth_behemoth: {
     id:'keth_behemoth', name:"Keth'vari Behemoth", faction:'kethvari',
     maxHull:490,
-    armor:11, maxSpeed:49, accel:17, turnRate:1.0, size:51,
+    armor:11, maxSpeed:36, accel:12, turnRate:0.85, size:51,
     depthRate:52, preferredDepth:250, stealthRating:0,
     color:'#c62828', glowColor:'#b71c1c',
     weapons:['bio_sting','bio_sting','acid_torpedo'], ai:'defensive',
+    slots:[
+      { id:'s0', label:'Port Mandible', pos:{x:-20,y:12}, facing:-Math.PI*0.3,arc:Math.PI*0.6,  weaponId:'bio_sting' },
+      { id:'s1', label:'Stbd Mandible', pos:{x:20, y:12}, facing:Math.PI*0.3, arc:Math.PI*0.6,  weaponId:'bio_sting' },
+      { id:'s2', label:'Ventral Sac',   pos:{x:0,  y:-10},facing:0,           arc:Math.PI*0.8,  weaponId:'acid_torpedo' },
+    ],
     xp:110, credits:220, shape:'keth_behemoth'
   },
   shard_slicer: {
     id:'shard_slicer', name:'Shard Slicer', faction:'shard',
     maxHull:135,
-    armor:5, maxSpeed:99, accel:43, turnRate:2.2, size:19,
+    armor:5, maxSpeed:72, accel:31, turnRate:1.9, size:19,
     depthRate:58, preferredDepth:100, stealthRating:0, ewDefense:25,
     color:'#ce93d8', glowColor:'#ab47bc',
     weapons:['crystal_beam'], ai:'aggressive',
+    slots:[
+      { id:'s0', label:'Crystal Focus', pos:{x:0,  y:10}, facing:0,           arc:Math.PI*0.65, weaponId:'crystal_beam' },
+    ],
     xp:32, credits:65, shape:'shard_slicer'
   },
   shard_fortress: {
     id:'shard_fortress', name:'Shard Fortress', faction:'shard',
     maxHull:455,
-    armor:16, maxSpeed:33, accel:13, turnRate:0.95, size:45,
+    armor:16, maxSpeed:24, accel:9, turnRate:0.8, size:45,
     depthRate:28, preferredDepth:150, stealthRating:0, ewDefense:50,
     color:'#9c27b0', glowColor:'#7b1fa2',
     weapons:['crystal_beam','crystal_beam','prism_burst'], ai:'defensive',
+    slots:[
+      { id:'s0', label:'Port Crystal',  pos:{x:-18,y:5},  facing:-Math.PI*0.4,arc:Math.PI*0.6,  weaponId:'crystal_beam' },
+      { id:'s1', label:'Stbd Crystal',  pos:{x:18, y:5},  facing:Math.PI*0.4, arc:Math.PI*0.6,  weaponId:'crystal_beam' },
+      { id:'s2', label:'Core Emitter',  pos:{x:0,  y:16}, facing:0,           arc:Math.PI*0.5,  weaponId:'prism_burst' },
+    ],
     xp:130, credits:260, shape:'shard_fortress'
   },
   leviathan_young: {
     id:'leviathan_young', name:'Young Leviathan', faction:'leviathan',
-    maxHull:585,
-    armor:22, maxSpeed:67, accel:25, turnRate:1.4, size:57,
+    maxHull:420,
+    armor:14, maxSpeed:48, accel:18, turnRate:1.2, size:57,
     depthRate:38, preferredDepth:800, stealthRating:0,
     color:'#00e676', glowColor:'#00c853',
     weapons:['tentacle_strike','sonic_pulse'], ai:'leviathan',
+    slots:[
+      { id:'s0', label:'Tentacle Maw',  pos:{x:0,  y:22}, facing:0,           arc:Math.PI*0.8,  weaponId:'tentacle_strike' },
+      { id:'s1', label:'Resonance Organ',pos:{x:0, y:-5}, facing:0,           arc:Math.PI,      weaponId:'sonic_pulse' },
+    ],
     xp:220, credits:0, shape:'leviathan_small'
   },
   leviathan_alpha: {
     id:'leviathan_alpha', name:'Alpha Leviathan', faction:'leviathan',
-    maxHull:1430,
-    armor:35, maxSpeed:49, accel:16, turnRate:0.9, size:93,
+    maxHull:880,
+    armor:22, maxSpeed:36, accel:12, turnRate:0.75, size:93,
     depthRate:18, preferredDepth:1050, stealthRating:0,
     color:'#00e676', glowColor:'#69f0ae',
     weapons:['tentacle_strike','tentacle_strike','sonic_pulse','depth_charge'], ai:'leviathan',
+    slots:[
+      { id:'s0', label:'Port Tentacle', pos:{x:-30,y:15}, facing:-Math.PI*0.3,arc:Math.PI*0.7,  weaponId:'tentacle_strike' },
+      { id:'s1', label:'Stbd Tentacle', pos:{x:30, y:15}, facing:Math.PI*0.3, arc:Math.PI*0.7,  weaponId:'tentacle_strike' },
+      { id:'s2', label:'Resonance Core',pos:{x:0,  y:0},  facing:0,           arc:Math.PI,      weaponId:'sonic_pulse' },
+      { id:'s3', label:'Abyssal Vent',  pos:{x:0,  y:-25},facing:Math.PI,     arc:Math.PI*0.7,  weaponId:'depth_charge' },
+    ],
     xp:600, credits:0, shape:'leviathan_boss'
   },
 };
 
 const WEAPON_DATA = {
   // ── Player weapons ─────────────────────────────────────────────
-  pulse_cannon:   { name:'Pulse Cannon',   type:'projectile', dmg:14, sdmg:1.0, hdmg:1.0, range:900,  cd:2.2, pSpeed:1150, pSize:10, pColor:'#00e5ff', color:'#00e5ff' },
-  particle_lance: { name:'Particle Lance', type:'beam',       dmg:9,  sdmg:0.8, hdmg:1.3, range:1150, cd:0.08, beamDur:2.2, rechargeDur:4.5, bWidth:3, color:'#ff6e40', arc: Math.PI * 0.6 },
-  heavy_cannon:   { name:'Heavy Cannon',   type:'projectile', dmg:40, sdmg:0.8, hdmg:1.5, range:1025, cd:5.0, pSpeed:850,  pSize:20, pColor:'#ffa726', color:'#ffa726', arc: Math.PI * 0.55 },
-  vortex_torpedo: { name:'Vortex Torpedo', type:'torpedo',    dmg:90, sdmg:0.5, hdmg:2.2, range:1550, cd:13.0, pSpeed:300,  pSize:22, pColor:'#ff7043', exRadius:162, trackRate:1.6, maxAmmo:6, color:'#ff7043' },
-  ciws:           { name:'CIWS',           type:'ciws',       dmg:22, sdmg:1.0, hdmg:1.0, range:640,  cd:0.45, pSpeed:1500, pSize:5,  pColor:'#ffee58', exRadius:90, trackRate:3.5, proximityFuze:60, color:'#ffee58' },
-  plasma_driver:  { name:'Plasma Driver',  type:'projectile', dmg:110,sdmg:1.2, hdmg:1.2, range:1275, cd:8.5, pSpeed:725,  pSize:35, pColor:'#e040fb', exRadius:112, color:'#e040fb', arc: Math.PI * 0.45 },
-  drone_launcher: { name:'Drone Bay',      type:'drone',      droneDmg:18, droneHull:35, droneSpeed:650, range:1300, cd:18.0, maxDrones:3, color:'#40c4ff' },
+  pulse_cannon:   { name:'Pulse Cannon',   type:'projectile', dmg:14, sdmg:1.0, hdmg:1.0, range:900,  cd:3.0, pSpeed:850,  pSize:10, pColor:'#00e5ff', color:'#00e5ff' },
+  particle_lance: { name:'Particle Lance', type:'beam',       dmg:9,  sdmg:0.8, hdmg:1.3, range:1150, cd:0.08, beamDur:2.4, rechargeDur:6.0, bWidth:3, color:'#ff6e40', arc: Math.PI * 0.6 },
+  heavy_cannon:   { name:'Heavy Cannon',   type:'projectile', dmg:40, sdmg:0.8, hdmg:1.5, range:1025, cd:7.0, pSpeed:650,  pSize:20, pColor:'#ffa726', color:'#ffa726', arc: Math.PI * 0.55 },
+  vortex_torpedo: { name:'Vortex Torpedo', type:'torpedo',    dmg:90, sdmg:0.5, hdmg:2.2, range:1550, cd:16.0, pSpeed:240, pSize:22, pColor:'#ff7043', exRadius:162, trackRate:1.4, maxAmmo:6, color:'#ff7043' },
+  ciws:           { name:'CIWS',           type:'ciws',       dmg:22, sdmg:1.0, hdmg:1.0, range:640,  cd:0.55, pSpeed:1100,pSize:5,  pColor:'#ffee58', exRadius:90, trackRate:3.0, proximityFuze:60, color:'#ffee58' },
+  plasma_driver:  { name:'Plasma Driver',  type:'projectile', dmg:110,sdmg:1.2, hdmg:1.2, range:1275, cd:11.0, pSpeed:560, pSize:35, pColor:'#e040fb', exRadius:112, color:'#e040fb', arc: Math.PI * 0.45 },
+  drone_launcher: { name:'Drone Bay',      type:'drone',      droneDmg:18, droneHull:35, droneSpeed:500, range:1300, cd:22.0, maxDrones:3, color:'#40c4ff' },
   // Electronic warfare — reduces enemy accuracy & weapon range
-  rail_driver:    { name:'Rail Driver',    type:'projectile', dmg:72, sdmg:0.8, hdmg:1.8, range:3000, cd:8.0, pSpeed:1800, pSize:12, pColor:'#ff9800', color:'#ff9800', arc: Math.PI * 0.22 },
+  rail_driver:    { name:'Rail Driver',    type:'projectile', dmg:72, sdmg:0.8, hdmg:1.8, range:3000, cd:10.0, pSpeed:1350,pSize:12, pColor:'#ff9800', color:'#ff9800', arc: Math.PI * 0.22 },
   ew_jammer:      { name:'EW Jammer',      type:'ew',         ewRadius:1250, ewStrength:40, cd:0, color:'#76ff03' },
   // ── Enemy weapons ──────────────────────────────────────────────
-  bio_sting:      { name:"Bio-Sting",      type:'projectile', dmg:11, sdmg:1.6, hdmg:0.7, range:725,  cd:1.6, pSpeed:1300, pSize:10, pColor:'#ff9100', color:'#ff9100' },
-  acid_torpedo:   { name:'Acid Torpedo',   type:'torpedo',    dmg:55, sdmg:0.3, hdmg:2.8, range:1150, cd:16.0, pSpeed:275,  pSize:17, pColor:'#aeea00', exRadius:0, trackRate:1.2, maxAmmo:5, dot:{dmg:5,dur:5,tick:1}, color:'#aeea00' },
-  crystal_beam:   { name:'Crystal Beam',   type:'beam',       dmg:17, sdmg:1.6, hdmg:0.6, range:975,  cd:0.08, beamDur:1.4, rechargeDur:2.6, bWidth:2, color:'#ea80fc' },
-  prism_burst:    { name:'Prism Burst',    type:'projectile', dmg:28, sdmg:2.2, hdmg:0.4, range:825,  cd:6.5, pSpeed:1550, pSize:15, pColor:'#ff4081', scatter:4, color:'#ff4081' },
-  tentacle_strike:{ name:'Tentacle Strike',type:'melee',      dmg:65, sdmg:0.3, hdmg:3.2, range:275,  cd:2.2, color:'#69f0ae' },
-  sonic_pulse:    { name:'Sonic Pulse',    type:'aoe',        dmg:35, sdmg:1.0, hdmg:1.0, range:775,  cd:5.5, exRadius:400, color:'#b9f6ca' },
-  depth_charge:   { name:'Depth Charge',   type:'torpedo',    dmg:130,sdmg:0.8, hdmg:1.6, range:1050, cd:13.0, pSpeed:362, pSize:27, pColor:'#69f0ae', exRadius:262, trackRate:0.8, maxAmmo:4, color:'#69f0ae' },
+  bio_sting:      { name:"Bio-Sting",      type:'projectile', dmg:12, sdmg:1.6, hdmg:0.8, range:725,  cd:2.2, pSpeed:950,  pSize:10, pColor:'#ff9100', color:'#ff9100' },
+  acid_torpedo:   { name:'Acid Torpedo',   type:'torpedo',    dmg:55, sdmg:0.3, hdmg:2.8, range:1150, cd:20.0, pSpeed:210, pSize:17, pColor:'#aeea00', exRadius:0, trackRate:1.0, maxAmmo:5, dot:{dmg:5,dur:5,tick:1}, color:'#aeea00' },
+  crystal_beam:   { name:'Crystal Beam',   type:'beam',       dmg:17, sdmg:1.6, hdmg:0.6, range:975,  cd:0.08, beamDur:1.6, rechargeDur:3.4, bWidth:2, color:'#ea80fc' },
+  prism_burst:    { name:'Prism Burst',    type:'projectile', dmg:28, sdmg:2.2, hdmg:0.4, range:825,  cd:8.0, pSpeed:1150, pSize:15, pColor:'#ff4081', scatter:4, color:'#ff4081' },
+  tentacle_strike:{ name:'Tentacle Strike',type:'melee',      dmg:65, sdmg:0.3, hdmg:3.2, range:275,  cd:3.0, color:'#69f0ae' },
+  sonic_pulse:    { name:'Sonic Pulse',    type:'aoe',        dmg:35, sdmg:1.0, hdmg:1.0, range:775,  cd:7.0, exRadius:400, color:'#b9f6ca' },
+  depth_charge:   { name:'Depth Charge',   type:'torpedo',    dmg:130,sdmg:0.8, hdmg:1.6, range:1050, cd:16.0, pSpeed:280, pSize:27, pColor:'#69f0ae', exRadius:262, trackRate:0.7, maxAmmo:4, color:'#69f0ae' },
 };
 
 // ── Ship module slots by template ─────────────────────────────────
@@ -458,7 +510,7 @@ const CAMPAIGN_CONFIG = {
   startCredits: 400,
   sectorNames: ['The Shallows', 'The Meridian Drift', 'The Abyssal Gate'],
   sectorFactions: ['kethvari', 'shard', 'leviathan'],
-  difficulty: [1.0, 1.55, 2.3],
+  difficulty: [1.0, 1.4, 1.8],
   enemyCounts: [[2,4],[3,6],[4,7]],
   bosses: [
     { name:"The Spawning Tide", desc:"A Keth'vari Behemoth surrounded by its spawn.", faction:'kethvari',
@@ -492,6 +544,7 @@ const NODE_TYPES = {
 // Terrain obstacle definitions (generated per combat)
 const TERRAIN_TYPES = {
   island:       { radius:200, color:'#263238', borderColor:'#455a64', slow:false, damage:false, blocking:true },
+  rock_pillar:  { radius:120, color:'#37474f', borderColor:'#546e7a', slow:false, damage:false, blocking:true },
   kelp:         { radius:150, color:'rgba(27,94,32,0.4)', borderColor:'rgba(46,125,50,0.6)', slow:true, damage:false, blocking:false },
   vent:         { radius:100, color:'rgba(183,28,28,0.3)', borderColor:'rgba(229,57,53,0.6)', slow:false, damage:true, damageRate:8, blocking:false },
   algae_bloom:  { radius:380, slow:false, damage:false, blocking:false, sensorMult:0.38 }, // heavily reduces sensor range

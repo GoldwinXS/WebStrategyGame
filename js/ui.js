@@ -147,6 +147,7 @@ class DamageControlModal {
     this._modelCenter = ctr;
     this._modelBox = box;
     // Add fire orbs
+    this._lastFireCount = ship.fires ? ship.fires.length : 0;
     this._rebuildFireMeshes(ship);
     // Add flood plane
     this._rebuildFloodPlane(ship);
@@ -158,11 +159,12 @@ class DamageControlModal {
     if (!this._modelBox || !ship.fires || ship.fires.length === 0) return;
     const box = this._modelBox;
     const sz  = box.getSize(new THREE.Vector3());
+    const ctr = box.getCenter(new THREE.Vector3());
     for (const fire of ship.fires) {
-      // Place at random position within hull bounds
-      const rx = box.min.x + Math.random() * sz.x * 0.6;
-      const rz = box.min.z + Math.random() * sz.z * 0.8;
-      const ry = box.max.y - 2;
+      // Place centered within hull bounds with some random spread
+      const rx = ctr.x + (Math.random() - 0.5) * sz.x * 0.55;
+      const rz = ctr.z + (Math.random() - 0.5) * sz.z * 0.6;
+      const ry = ctr.y + (Math.random() - 0.3) * sz.y * 0.4;
       const geo = new THREE.SphereGeometry(sz.x * 0.04 * (fire.severity + 1), 7, 5);
       const col = new THREE.Color(1, 0.3 + Math.random() * 0.3, 0);
       const mat = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.85 });
@@ -274,8 +276,9 @@ class DamageControlModal {
       turretEl.style.cssText = 'margin-top:8px;padding:6px 8px;background:rgba(0,10,25,0.5);border:1px solid #1a2a3a;border-radius:3px';
       buoyEl.parentNode.insertBefore(turretEl, buoyEl.nextSibling);
     }
-    if (ship.slots && ship.slots.length > 0) {
-      const slotRows = ship.slots.map(sl => {
+    const armedSlots = ship.slots ? ship.slots.filter(sl => sl.weapon || sl.weaponId) : [];
+    if (armedSlots.length > 0) {
+      const slotRows = armedSlots.map(sl => {
         const hp = sl.health;
         const bar = hp <= 0 ? '#f44336' : hp < 50 ? '#ff9800' : '#4caf50';
         const status = hp <= 0 ? '<span style="color:#f44336;font-weight:bold">DESTROYED</span>'
@@ -289,7 +292,7 @@ class DamageControlModal {
           ${status}
         </div>`;
       }).join('');
-      const destroyed = ship.slots.filter(s => s.health <= 0).length;
+      const destroyed = armedSlots.filter(s => s.health <= 0).length;
       turretEl.innerHTML = `<div style="font:9px var(--font-hd);color:#557;letter-spacing:1px;margin-bottom:4px">TURRET MOUNTS ${destroyed > 0 ? `<span style="color:#f44336">(${destroyed} DESTROYED)</span>` : ''}</div>${slotRows}`;
     } else {
       turretEl.innerHTML = '<div style="font:10px monospace;color:#446">No defined turret slots</div>';
@@ -337,6 +340,12 @@ class DamageControlModal {
       this._updateTimer = 0.5;
       this._refreshStatus();
       this._rebuildFloodPlane(this._ship);
+      // Rebuild fire meshes when fire count changes (fires extinguished or new fires)
+      const currentFireCount = this._ship.fires ? this._ship.fires.length : 0;
+      if (currentFireCount !== this._lastFireCount) {
+        this._lastFireCount = currentFireCount;
+        this._rebuildFireMeshes(this._ship);
+      }
     }
   }
 
@@ -945,6 +954,23 @@ class UIManager {
         // 'R' label
         ctx.fillStyle = '#78909c'; ctx.font = '7px monospace'; ctx.textAlign = 'center';
         ctx.fillText('ROCK', tx, ty + 3);
+      } else if (t.type === 'rock_pillar') {
+        // Grey pentagon (rock column)
+        ctx.fillStyle = 'rgba(55,71,79,0.8)';
+        ctx.strokeStyle = '#78909c';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        const pSides = 5;
+        for (let k = 0; k < pSides; k++) {
+          const a = (k / pSides) * Math.PI * 2 - Math.PI / 2;
+          const r = tr * 0.85;
+          k === 0 ? ctx.moveTo(tx + Math.cos(a)*r, ty + Math.sin(a)*r)
+                  : ctx.lineTo(tx + Math.cos(a)*r, ty + Math.sin(a)*r);
+        }
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#90a4ae'; ctx.font = '7px monospace'; ctx.textAlign = 'center';
+        ctx.fillText('PILLAR', tx, ty + 3);
       } else if (t.type === 'kelp') {
         // Green hatched oval
         ctx.fillStyle = 'rgba(27,94,32,0.35)';
@@ -1403,7 +1429,7 @@ class UIManager {
 
   setArcOverlayHint(on) {
     const btn = document.getElementById('btn-arc-overlay');
-    if (btn) btn.textContent = `ARCS [A]: ${on ? 'ON' : 'OFF'}`;
+    if (btn) btn.textContent = `ARCS [G]: ${on ? 'ON' : 'OFF'}`;
   }
 
   showCombatTutorial() {
@@ -2029,6 +2055,93 @@ class UIManager {
     const slotPickerCancelBtn  = document.getElementById('fb-slot-picker-cancel');
     slotPickerCancelBtn.addEventListener('click', () => { slotPickerEl.style.display = 'none'; });
 
+    // Draw top-down ship diagram with slot positions on the picker canvas
+    const _drawSlotDiagram = (tpl, templateSlots, highlightIdx) => {
+      const cvs = document.getElementById('fb-slot-picker-diagram');
+      if (!cvs) return;
+      const ctx = cvs.getContext('2d');
+      const W = cvs.width, H = cvs.height;
+      ctx.clearRect(0, 0, W, H);
+      // Compute extent of slot positions to scale the diagram
+      let maxExtent = Math.max(tpl.size || 20, 20);
+      for (const s of templateSlots) {
+        maxExtent = Math.max(maxExtent, Math.abs(s.pos.x) * 1.4, Math.abs(s.pos.y) * 1.1);
+      }
+      const scale = Math.min(W, H) * 0.38 / maxExtent;
+      const cx = W / 2, cy = H / 2;
+      // Ship outline (elongated hull, bow at top)
+      const hullW = (tpl.size || 20) * 0.55 * scale;
+      const hullH = (tpl.size || 20) * 1.6 * scale;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.beginPath();
+      // Tapered hull shape: bow (top) is narrow, stern (bottom) is wider
+      ctx.moveTo(0, -hullH / 2);                          // bow tip
+      ctx.quadraticCurveTo(hullW * 0.9, -hullH * 0.25, hullW, hullH * 0.1);  // starboard bow curve
+      ctx.lineTo(hullW * 0.85, hullH / 2);                // starboard stern
+      ctx.quadraticCurveTo(0, hullH * 0.55, -hullW * 0.85, hullH / 2);       // stern curve
+      ctx.lineTo(-hullW, hullH * 0.1);                    // port stern
+      ctx.quadraticCurveTo(-hullW * 0.9, -hullH * 0.25, 0, -hullH / 2);      // port bow curve
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(20, 50, 80, 0.5)';
+      ctx.fill();
+      ctx.strokeStyle = tpl.color || '#446';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      // Center line
+      ctx.beginPath();
+      ctx.moveTo(0, -hullH / 2 + 4);
+      ctx.lineTo(0, hullH / 2 - 4);
+      ctx.strokeStyle = 'rgba(100,140,180,0.15)';
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+      ctx.restore();
+      // "BOW" / "STERN" labels
+      ctx.fillStyle = 'rgba(100,140,180,0.3)';
+      ctx.font = '7px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('BOW', cx, 10);
+      ctx.fillText('STERN', cx, H - 4);
+      // Slot markers — ship-local coords: +y=forward(bow)=up on screen, +x=starboard=right
+      const slotColors = ['#ff9800','#40c4ff','#69f0ae','#ffeb3b','#ce93d8','#80cbc4'];
+      for (let i = 0; i < templateSlots.length; i++) {
+        const s = templateSlots[i];
+        const sx = cx + s.pos.x * scale;
+        const sy = cy - s.pos.y * scale;  // y inverted: +y = up
+        const r = i === highlightIdx ? 6 : 4;
+        const col = slotColors[i % slotColors.length];
+        // Arc fan preview
+        if (s.arc < Math.PI * 0.95) {
+          const fanR = 18;
+          const facing = -s.facing - Math.PI / 2; // convert to canvas angle (0=right, CCW)
+          ctx.save();
+          ctx.translate(sx, sy);
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.arc(0, 0, fanR, facing - s.arc, facing + s.arc);
+          ctx.closePath();
+          ctx.fillStyle = i === highlightIdx ? col + '44' : col + '1a';
+          ctx.fill();
+          ctx.restore();
+        }
+        // Dot
+        ctx.beginPath();
+        ctx.arc(sx, sy, r, 0, Math.PI * 2);
+        ctx.fillStyle = i === highlightIdx ? col : col + '99';
+        ctx.fill();
+        if (i === highlightIdx) {
+          ctx.strokeStyle = '#fff';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        }
+        // Slot index label
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 7px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(s.id.replace('s',''), sx, sy + 2.5);
+      }
+    };
+
     // Show a slot picker for weapon modules; calls callback(slotId) on selection
     const showSlotPicker = (entry, modName, callback) => {
       const tpl = SHIP_TEMPLATES[entry.templateId];
@@ -2040,12 +2153,18 @@ class UIManager {
         callback(null);
         return;
       }
-      for (const slot of templateSlots) {
-        const posDesc = `x:${slot.pos.x > 0 ? '+' : ''}${slot.pos.x} y:${slot.pos.y > 0 ? '+' : ''}${slot.pos.y}`;
+      _drawSlotDiagram(tpl, templateSlots, -1);
+      for (let si = 0; si < templateSlots.length; si++) {
+        const slot = templateSlots[si];
         const arcDeg = Math.round(slot.arc * (180/Math.PI) * 2);
+        const wName = slot.weaponId ? (WEAPON_DATA[slot.weaponId]?.name || '') : '';
+        const occupied = wName ? `<span class="spl-weapon">${wName}</span>` : '<span class="spl-empty">— empty —</span>';
         const btn = document.createElement('button');
         btn.className = 'fb-slot-picker-btn';
-        btn.innerHTML = `<span class="spl-label">${slot.label}</span><span class="spl-pos">${posDesc} · arc ${arcDeg}°</span>`;
+        btn.innerHTML = `<span class="spl-label">${slot.label}</span>${occupied}<span class="spl-pos">arc ${arcDeg}°</span>`;
+        const idx = si;
+        btn.addEventListener('mouseenter', () => _drawSlotDiagram(tpl, templateSlots, idx));
+        btn.addEventListener('mouseleave', () => _drawSlotDiagram(tpl, templateSlots, -1));
         btn.addEventListener('click', () => {
           slotPickerEl.style.display = 'none';
           callback(slot.id);
@@ -2081,7 +2200,7 @@ class UIManager {
       const tpl = SHIP_TEMPLATES[templateId];
       if (!tpl) return;
       previewRenderer.showShip(templateId);
-      const hullBar = Math.round((tpl.maxHull / 1430) * 100);
+      const hullBar = Math.round((tpl.maxHull / 1100) * 100);
       const spdBar  = Math.round((tpl.maxSpeed / 190) * 100);
       const armBar  = Math.min(100, Math.round((tpl.armor / 45) * 100));
       // Turret slot layout for this template
@@ -2091,15 +2210,18 @@ class UIManager {
             <div class="fb-prev-slots-label">TURRET MOUNTS</div>
             ${slots.map(s => {
               const arcDeg = Math.round(s.arc * (180/Math.PI) * 2);
-              const wName = s.weaponId ? (WEAPON_DATA[s.weaponId]?.name || s.weaponId) : '— empty —';
-              return `<div class="fb-prev-slot-row">
+              const wName = s.weaponId ? (WEAPON_DATA[s.weaponId]?.name || s.weaponId) : null;
+              const wClass = wName ? 'fb-prev-slot-wep' : 'fb-prev-slot-empty';
+              return `<div class="fb-prev-slot-row${wName ? '' : ' empty-slot'}">
                 <span class="fb-prev-slot-lbl">${s.label}</span>
-                <span class="fb-prev-slot-wep">${wName}</span>
+                <span class="${wClass}">${wName || 'UPGRADE SLOT'}</span>
                 <span class="fb-prev-slot-arc">${arcDeg}°</span>
               </div>`;
             }).join('')}
           </div>`
         : '';
+      const dcCrews = tpl.repairCrews || 2;
+      const detectR = tpl.detectRange || 0;
       previewInfoEl.innerHTML = `
         <div class="fb-preview-name" style="color:${tpl.color}">${tpl.name}</div>
         <div class="fb-preview-class">${tpl.shipClass}</div>
@@ -2108,6 +2230,12 @@ class UIManager {
           <div class="fb-prev-stat"><span>HULL</span><div class="fb-prev-bar"><div class="fb-prev-fill hull" style="width:${hullBar}%"></div></div><span class="fb-prev-val">${tpl.maxHull}</span></div>
           <div class="fb-prev-stat"><span>SPD</span><div class="fb-prev-bar"><div class="fb-prev-fill spd" style="width:${spdBar}%"></div></div><span class="fb-prev-val">${tpl.maxSpeed}</span></div>
           <div class="fb-prev-stat"><span>ARM</span><div class="fb-prev-bar"><div class="fb-prev-fill arm" style="width:${armBar}%"></div></div><span class="fb-prev-val">${tpl.armor}</span></div>
+        </div>
+        <div class="fb-prev-extras">
+          <span class="fb-prev-extra">DC CREWS: ${dcCrews}</span>
+          <span class="fb-prev-extra">SENSORS: ${detectR}m</span>
+          ${tpl.stealthRating ? `<span class="fb-prev-extra">STEALTH: ${tpl.stealthRating}</span>` : ''}
+          ${tpl.ewStrength ? `<span class="fb-prev-extra">EW: ${tpl.ewStrength}</span>` : ''}
         </div>
         ${slotListHtml}`;
     };

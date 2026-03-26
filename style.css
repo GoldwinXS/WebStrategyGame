@@ -1428,8 +1428,20 @@ button { cursor: pointer; border: none; font-family: var(--font-hd); outline: no
   border: 1px solid #1e4060;
   border-radius: 4px;
   padding: 20px 24px;
-  min-width: 280px;
-  max-width: 360px;
+  min-width: 380px;
+  max-width: 480px;
+}
+.fb-slot-picker-body {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.fb-slot-picker-diagram {
+  flex-shrink: 0;
+  border: 1px solid #1a2a3a;
+  border-radius: 3px;
+  background: #020a14;
 }
 .fb-slot-picker-title {
   font-family: var(--font-hd);
@@ -1448,7 +1460,8 @@ button { cursor: pointer; border: none; font-family: var(--font-hd); outline: no
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-bottom: 12px;
+  flex: 1;
+  min-width: 0;
 }
 .fb-slot-picker-btn {
   background: rgba(0, 30, 60, 0.6);
@@ -1466,8 +1479,11 @@ button { cursor: pointer; border: none; font-family: var(--font-hd); outline: no
   border-color: var(--c-accent);
   color: var(--c-accent);
 }
-.fb-slot-picker-btn .spl-label { font-weight: bold; color: var(--c-text-bright); }
-.fb-slot-picker-btn .spl-pos   { font-size: 9px; color: var(--c-text-dim); margin-left: 6px; }
+.fb-slot-picker-btn { display: flex; align-items: center; gap: 6px; }
+.fb-slot-picker-btn .spl-label { font-weight: bold; color: var(--c-text-bright); flex-shrink: 0; }
+.fb-slot-picker-btn .spl-weapon { font-size: 9px; color: #789; flex: 1; }
+.fb-slot-picker-btn .spl-empty  { font-size: 9px; color: #4caf50; flex: 1; font-style: italic; }
+.fb-slot-picker-btn .spl-pos   { font-size: 9px; color: var(--c-text-dim); flex-shrink: 0; }
 .fb-slot-picker-cancel {
   background: transparent;
   border: 1px solid #1e3a5f;
@@ -2003,6 +2019,13 @@ button { cursor: pointer; border: none; font-family: var(--font-hd); outline: no
 }
 
 .fb-preview-stats { display: flex; flex-direction: column; gap: 4px; }
+.fb-prev-extras {
+  display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 6px;
+}
+.fb-prev-extra {
+  font-size: 8px; letter-spacing: 0.5px; color: #567;
+  font-family: var(--font-hd);
+}
 
 .fb-prev-stat {
   display: flex;
@@ -2055,6 +2078,8 @@ button { cursor: pointer; border: none; font-family: var(--font-hd); outline: no
 .fb-prev-slot-row:last-child { border-bottom: none; }
 .fb-prev-slot-lbl { flex: 0 0 72px; color: #789; }
 .fb-prev-slot-wep { flex: 1; color: var(--c-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fb-prev-slot-empty { flex: 1; color: #4caf50; font-size: 8px; font-style: italic; letter-spacing: 0.5px; }
+.fb-prev-slot-row.empty-slot { opacity: 0.7; border-bottom-color: rgba(76,175,80,0.1); }
 .fb-prev-slot-arc { flex: 0 0 28px; text-align: right; color: #446; font-size: 8px; }
 
 /* ── Upgrades Panel ─────────────────────────────────────────────── */

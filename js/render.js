@@ -35,7 +35,7 @@ const Noise = {
 
 // ── Ship Model Factory ────────────────────────────────────────────
 const ShipModels = {
-  _mat(color, glow, metal=0.7, rough=0.25, emissInt=0.25) {
+  _mat(color, glow, metal=0.7, rough=0.25, emissInt=0.32) {
     return new THREE.MeshStandardMaterial({
       color: new THREE.Color(color),
       emissive: new THREE.Color(glow || color),
@@ -49,7 +49,7 @@ const ShipModels = {
     return new THREE.MeshStandardMaterial({
       color: new THREE.Color(color),
       emissive: new THREE.Color(color),
-      emissiveIntensity: 0.55,
+      emissiveIntensity: 0.65,
       metalness: 0.5,
       roughness: 0.3,
     });
@@ -566,7 +566,7 @@ const ShipModels = {
     if (!weaponDef) return null;
     const lx = slotDef.pos.x / sf;
     const lz = -slotDef.pos.y / sf;
-    const ly = 9;
+    const ly = sf * 3 + 0.5;
     const tGroup = new THREE.Group();
     tGroup.position.set(lx, ly, lz);
     tGroup.rotation.y = -slotDef.facing;
@@ -632,6 +632,7 @@ class Renderer {
     // Three.js core
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setClearColor(0x091e2e);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -639,7 +640,7 @@ class Renderer {
 
     // Scene
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.FogExp2(0x030810, 0.00012);
+    this.scene.fog = new THREE.FogExp2(0x091e2e, 0.00035);
 
     // Camera — spherical coords: camDist = distance from target, camElevation = angle above horizontal
     this.camera = new THREE.PerspectiveCamera(55, this.W / this.H, 5, 30000);
@@ -679,10 +680,10 @@ class Renderer {
   _setupScene() {
     // ── Deep ocean darkness ────────────────────────────────────────
     this.scene.background = null;  // replaced by depth gradient sphere
-    this.scene.fog = new THREE.FogExp2(0x020c18, 0.00052);  // thick — hides world edges
+    this.scene.fog = new THREE.FogExp2(0x091e2e, 0.00035);  // thick — hides world edges
 
     // Ambient — cold blue-teal, deep ocean
-    const ambient = new THREE.AmbientLight(0x0b2a40, 2.2);
+    const ambient = new THREE.AmbientLight(0x0b2a40, 2.6);
     this.scene.add(ambient);
     this._ambientLight = ambient;
 
@@ -715,12 +716,15 @@ class Renderer {
     this._createDepthAtmosphere();
     this._createWorldBorder();
     this._createSeafloor();
+    this._createFloorAtmoPlanes();
     this._createWaterSurface();
     this._createLightShafts();
     this._createCaustics();
     this._createSandRidges();
     this._createBiolumParticles();
     this._createSeaGrass();
+    this._createSeafloorRocks();
+    this._createEdgeFog();
 
     // Terrain objects group
     this.terrainGroup = new THREE.Group();
@@ -733,16 +737,21 @@ class Renderer {
   // ── Biome visual themes ───────────────────────────────────────
   _applyBiomeTheme(biome) {
     const THEMES = {
-      abyssal:      { fog: 0x020c18, fogD: 0.00052, amb: 0x0b2a40, ambI: 2.2, surf: 0x2a8ab0, surfI: 1.4, bl: 0x00e5b0, blOp: 0.85, pts: [0x00cc77, 0x0077cc] },
-      vent_field:   { fog: 0x180d02, fogD: 0.00058, amb: 0x2a1508, ambI: 2.0, surf: 0xb06820, surfI: 1.2, bl: 0xff8800, blOp: 0.90, pts: [0xff6600, 0xff9900] },
-      kelp_forest:  { fog: 0x031408, fogD: 0.00068, amb: 0x0a2812, ambI: 2.4, surf: 0x3a9040, surfI: 1.5, bl: 0x44ff66, blOp: 0.90, pts: [0x00cc44, 0x44cc00] },
-      seamount:     { fog: 0x05091a, fogD: 0.00042, amb: 0x0c1832, ambI: 2.0, surf: 0x4090d0, surfI: 1.6, bl: 0x66ccff, blOp: 0.80, pts: [0x4488cc, 0x0088ff] },
-      wreck_field:  { fog: 0x0c0e06, fogD: 0.00070, amb: 0x181a10, ambI: 1.8, surf: 0x709050, surfI: 1.1, bl: 0x99ee44, blOp: 0.75, pts: [0x88aa22, 0xaacc44] },
-      crystal_caves:{ fog: 0x0a0018, fogD: 0.00055, amb: 0x1a0830, ambI: 2.5, surf: 0x9040e0, surfI: 1.3, bl: 0xcc66ff, blOp: 0.95, pts: [0xaa22ff, 0x6633cc] },
+      abyssal:      { fog: 0x091e2e, fogD: 0.00035, amb: 0x0b2a40, ambI: 2.4, surf: 0x2a8ab0, surfI: 1.6, bl: 0x00e5b0, blOp: 0.90, pts: [0x00cc77, 0x0077cc] },
+      vent_field:   { fog: 0x1a1408, fogD: 0.00040, amb: 0x2a1508, ambI: 2.2, surf: 0xb06820, surfI: 1.4, bl: 0xff8800, blOp: 0.95, pts: [0xff6600, 0xff9900] },
+      kelp_forest:  { fog: 0x081e10, fogD: 0.00042, amb: 0x0a2812, ambI: 2.6, surf: 0x3a9040, surfI: 1.7, bl: 0x44ff66, blOp: 0.95, pts: [0x00cc44, 0x44cc00] },
+      seamount:     { fog: 0x0c1e30, fogD: 0.00030, amb: 0x0c1832, ambI: 2.2, surf: 0x4090d0, surfI: 1.8, bl: 0x66ccff, blOp: 0.85, pts: [0x4488cc, 0x0088ff] },
+      wreck_field:  { fog: 0x141a0c, fogD: 0.00045, amb: 0x181a10, ambI: 2.0, surf: 0x709050, surfI: 1.3, bl: 0x99ee44, blOp: 0.80, pts: [0x88aa22, 0xaacc44] },
+      crystal_caves:{ fog: 0x120822, fogD: 0.00038, amb: 0x1a0830, ambI: 2.8, surf: 0x9040e0, surfI: 1.5, bl: 0xcc66ff, blOp: 1.00, pts: [0xaa22ff, 0x6633cc] },
     };
     const t = THEMES[biome] || THEMES.abyssal;
     this.scene.fog.color.setHex(t.fog);
     this.scene.fog.density = t.fogD;
+    this.renderer.setClearColor(t.fog);
+    if (this._skyUniforms) this._skyUniforms.uFogColor.value.setHex(t.fog);
+    if (this._edgeFogMeshes) {
+      for (const m of this._edgeFogMeshes) m.material.color.setHex(t.fog);
+    }
     if (this._ambientLight) {
       this._ambientLight.color.setHex(t.amb);
       this._ambientLight.intensity = t.ambI;
@@ -769,8 +778,8 @@ class Renderer {
   // The caustic pattern always appears in the upper hemisphere so the scene
   // always looks underwater regardless of camera height.
   _createDepthBackground() {
-    this._skyUniforms = { uTime: { value: 0.0 } };
-    const geo = new THREE.SphereGeometry(28000, 32, 16);
+    this._skyUniforms = { uTime: { value: 0.0 }, uFogColor: { value: new THREE.Color(0x020c18) } };
+    const geo = new THREE.SphereGeometry(14000, 32, 16);
     const mat = new THREE.ShaderMaterial({
       side: THREE.BackSide,
       depthWrite: false,
@@ -786,17 +795,19 @@ class Renderer {
       `,
       fragmentShader: /* glsl */`
         uniform float uTime;
+        uniform vec3  uFogColor;
         varying float vY;
         varying vec3  vPos;
         void main() {
           float up   = clamp(vY, 0.0, 1.0);
           float down = clamp(-vY, 0.0, 1.0);
-          // Deep ocean gradient
-          vec3 surfaceGlow  = vec3(0.03, 0.14, 0.32);
-          vec3 horizonColor = vec3(0.01, 0.05, 0.14);
-          vec3 abyssColor   = vec3(0.00, 0.01, 0.03);
+          // Derive sky gradient from fog color so horizon blends seamlessly
+          // Lower hemisphere = fog color (not darker) so looking past terrain shows fog, not void
+          vec3 horizonColor = uFogColor;
+          vec3 surfaceGlow  = uFogColor + vec3(0.02, 0.09, 0.18);
           vec3 col = mix(horizonColor, surfaceGlow, pow(up, 2.0));
-          col = mix(col, abyssColor, pow(down, 1.3));
+          // Below horizon: stay at fog color (very gentle darken only at extreme down angles)
+          col = mix(col, uFogColor * 0.85, pow(down, 3.0));
           // Caustic water-surface ceiling — always in upper hemisphere
           // Gives the "you are inside the ocean looking up" feeling at any camera height.
           float upFade = smoothstep(0.10, 0.55, vY);
@@ -834,27 +845,81 @@ class Renderer {
         float a = w * (0.022 + spot * 0.018);
         gl_FragColor = vec4(0.02, 0.14, 0.28, a);
       }`;
-    // Two thin planes right above the seafloor add a soft glow without looking like layers.
+    // Layered depth haze — multiple translucent planes at different depths
+    // create a sense of water volume and light attenuation.
     this._atmosMeshes = [];
-    for (const dy of [10, 28]) {
-      const mat = new THREE.ShaderMaterial({
-        uniforms: { uTime: this._atmosTimeRef },
-        vertexShader: VS, fragmentShader: FS,
+    const hazeFS = /* glsl */`
+      uniform float uTime, uAlpha;
+      uniform vec3  uColor;
+      varying vec2 vUv;
+      void main(){
+        vec2 p = vUv * 3.5;
+        float w = sin(p.x * 1.2 + uTime * 0.04) * cos(p.y * 1.5 - uTime * 0.03) * 0.3 + 0.7;
+        float a = w * uAlpha;
+        gl_FragColor = vec4(uColor, a);
+      }`;
+    const hazeLayers = [
+      { y: -150,  alpha: 0.015, color: new THREE.Color(0x051828) },
+      { y: -350,  alpha: 0.025, color: new THREE.Color(0x041420) },
+      { y: -550,  alpha: 0.035, color: new THREE.Color(0x030e18) },
+      { y: -750,  alpha: 0.045, color: new THREE.Color(0x020a14) },
+      { y: -950,  alpha: 0.050, color: new THREE.Color(0x020810) },
+    ];
+    for (const layer of hazeLayers) {
+      const hazeMat = new THREE.ShaderMaterial({
+        uniforms: { uTime: this._atmosTimeRef, uAlpha: { value: layer.alpha }, uColor: { value: layer.color } },
+        vertexShader: VS, fragmentShader: hazeFS,
         transparent: true, depthWrite: false,
-        side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide, blending: THREE.NormalBlending,
       });
-      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(WORLD_W + 1200, WORLD_H + 1200), mat);
-      mesh.rotation.x = -Math.PI / 2;
-      mesh.position.y = -WORLD_DEPTH + dy;
-      mesh.frustumCulled = false;
-      this.scene.add(mesh);
-      this._atmosMeshes.push(mesh);
+      const hazeMesh = new THREE.Mesh(new THREE.PlaneGeometry(WORLD_W + 30000, WORLD_H + 30000), hazeMat);
+      hazeMesh.rotation.x = -Math.PI / 2;
+      hazeMesh.position.y = layer.y;
+      hazeMesh.frustumCulled = false;
+      this.scene.add(hazeMesh);
+      this._atmosMeshes.push(hazeMesh);
     }
+    // Two near-seafloor glow planes — created here but terrain-draped after _createSeafloor
+    this._pendingFloorAtmo = { VS, FS };
   }
 
   _updateDepthAtmosphere() {
     if (this._atmosTimeRef)  this._atmosTimeRef.value  = this.time;
     if (this._skyUniforms)   this._skyUniforms.uTime.value = this.time;
+    // Sky sphere follows camera so it never clips
+    if (this._skyMesh) this._skyMesh.position.copy(this.camera.position);
+  }
+
+  // Create near-seafloor atmo glow planes AFTER _createSeafloor so they can drape over terrain
+  _createFloorAtmoPlanes() {
+    const p = this._pendingFloorAtmo;
+    if (!p) return;
+    const segs = this._floorSegs || 100;
+    const W = this._floorW || (WORLD_W + 30000);
+    const H = this._floorH || (WORLD_H + 30000);
+    for (const dy of [10, 28]) {
+      const mat = new THREE.ShaderMaterial({
+        uniforms: { uTime: this._atmosTimeRef },
+        vertexShader: p.VS, fragmentShader: p.FS,
+        transparent: true, depthWrite: false,
+        side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+      });
+      const geo = new THREE.PlaneGeometry(W, H, segs, segs);
+      if (this._floorHeights) {
+        const apos = geo.attributes.position;
+        for (let i = 0; i < apos.count && i < this._floorHeights.length; i++) {
+          apos.setZ(i, this._floorHeights[i] + dy);
+        }
+        apos.needsUpdate = true;
+      }
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.y = -WORLD_DEPTH;
+      mesh.frustumCulled = false;
+      this.scene.add(mesh);
+      this._atmosMeshes.push(mesh);
+    }
+    delete this._pendingFloorAtmo;
   }
 
   // ── World border — dark fog walls at play-zone edges ──────────
@@ -952,49 +1017,115 @@ class Renderer {
 
   // ── Seafloor — FBM noise terrain with vertex colours ──────────
   _createSeafloor() {
-    const segs = 100;
-    const W    = WORLD_W + 6000;
-    const H    = WORLD_H + 6000;
+    const segs = 128;
+    const W    = WORLD_W + 30000;
+    const H    = WORLD_H + 30000;
     const geo  = new THREE.PlaneGeometry(W, H, segs, segs);
     const pos  = geo.attributes.position;
 
-    // Height map: large-scale ridges + fine detail
-    const maxH = 320;  // visible against 1200-unit depth
+    // Height map: continental shelves + ridges + fine detail
+    const maxH = 700;  // dramatic height variation across the 1200-unit water column
     const heights = new Float32Array(pos.count);
     for (let i = 0; i < pos.count; i++) {
       const wx = pos.getX(i) / W;
       const wy = pos.getY(i) / H;
-      // Large ridges and trenches
+      // Continental-scale features — broad plateaus and basins
+      const continent = Noise.fbm(wx * 1.2 + 0.3, wy * 1.2 + 0.7, 3, 2.0, 0.55, 7);
+      // Mid-scale ridges and trenches
       const ridge = Noise.fbm(wx * 3 + 0.5, wy * 3 + 0.5, 4, 2.2, 0.52, 42);
       // Domain-warped fine detail
       const wx2 = wx + 0.25 * Noise.fbm(wx * 5 + 3.7, wy * 5 + 1.9, 3, 2.0, 0.5, 77);
       const wy2 = wy + 0.25 * Noise.fbm(wx * 5 + 9.2, wy * 5 + 7.1, 3, 2.0, 0.5, 13);
       const detail = Noise.fbm(wx2 * 8, wy2 * 8, 5, 2.1, 0.45, 200);
-      const h = (ridge * 0.65 + detail * 0.35) * maxH - maxH * 0.3;
+      // Combine: continent shapes the broad elevation, ridges add mid-frequency,
+      // detail adds fine texture. Deep trenches where continent is low.
+      const combined = continent * 0.45 + ridge * 0.35 + detail * 0.20;
+      let h = combined * maxH - maxH * 0.35;
+      // Flatten terrain toward extreme edges (well beyond fog visibility)
+      const ex = Math.abs(pos.getX(i)) / (W * 0.5);
+      const ey = Math.abs(pos.getY(i)) / (H * 0.5);
+      const eDist = Math.max(ex, ey);
+      const eFade = Math.max(0, Math.min(1, (eDist - 0.85) / 0.12));
+      h *= (1 - eFade);
       pos.setZ(i, h);
       heights[i] = h;
     }
     geo.computeVertexNormals();
+    // Store height data so caustics/sand ridges can drape over terrain
+    this._floorSegs = segs;
+    this._floorW = W;
+    this._floorH = H;
+    this._floorHeights = heights;
 
-    // Vertex colours: high contrast — near-black trenches, bright teal-green ridges
+    // Vertex colours: deep trenches are near-black, shallow plateaus are bright teal-green
     const colors = new Float32Array(pos.count * 3);
     for (let i = 0; i < pos.count; i++) {
-      const t = Math.max(0, Math.min(1, (heights[i] + maxH * 0.3) / maxH));
+      const t = Math.max(0, Math.min(1, (heights[i] + maxH * 0.35) / maxH));
       const t2 = t * t;
-      const r = Noise.lerp(0.01, 0.08, t2);
-      const g = Noise.lerp(0.06, 0.72, t2 * t);  // cubic ramp — ridges much brighter
-      const b = Noise.lerp(0.10, 0.38, t);
-      colors[i*3]   = r;
-      colors[i*3+1] = g;
-      colors[i*3+2] = b;
+      // Four-stop color ramp: abyss → deep → mid → ridge
+      let cr, cg, cb;
+      if (t < 0.25) {
+        // Deep trenches — very dark blue-black
+        const s = t / 0.25;
+        cr = Noise.lerp(0.005, 0.01, s);
+        cg = Noise.lerp(0.02,  0.04, s);
+        cb = Noise.lerp(0.04,  0.08, s);
+      } else if (t < 0.5) {
+        // Mid-depth plains — dark teal
+        const s = (t - 0.25) / 0.25;
+        cr = Noise.lerp(0.01, 0.02, s);
+        cg = Noise.lerp(0.04, 0.12, s);
+        cb = Noise.lerp(0.08, 0.14, s);
+      } else if (t < 0.75) {
+        // Elevated terrain — medium green
+        const s = (t - 0.5) / 0.25;
+        cr = Noise.lerp(0.02, 0.04, s);
+        cg = Noise.lerp(0.12, 0.28, s);
+        cb = Noise.lerp(0.14, 0.18, s);
+      } else {
+        // Ridge peaks — bright teal-green
+        const s = (t - 0.75) / 0.25;
+        cr = Noise.lerp(0.04, 0.06, s);
+        cg = Noise.lerp(0.28, 0.40, s);
+        cb = Noise.lerp(0.18, 0.24, s);
+      }
+      // Subtle bioluminescent tint on high ridges
+      const wx = pos.getX(i) / W, wy = pos.getY(i) / H;
+      const biolum = Noise.fbm(wx * 12 + 5.3, wy * 12 + 2.7, 2, 2.0, 0.5, 99);
+      if (biolum > 0.65 && t > 0.6) {
+        const glow = (biolum - 0.65) / 0.35;
+        cr += glow * 0.015;
+        cg += glow * 0.08;
+        cb += glow * 0.04;
+      }
+      // Warm mineral veins in deep trenches
+      const vein = Noise.fbm(wx * 18 + 8.1, wy * 18 + 4.4, 2, 2.2, 0.5, 55);
+      if (vein > 0.68 && t < 0.2) {
+        const v = (vein - 0.68) / 0.32;
+        cr += v * 0.05;
+        cg += v * 0.015;
+      }
+      // Fade vertex colors to fog color near edges so terrain dissolves into fog
+      const vx = pos.getX(i), vy = pos.getY(i);
+      const edgeDistX = Math.abs(vx) / (W * 0.5);  // 0 at center, 1 at edge
+      const edgeDistY = Math.abs(vy) / (H * 0.5);
+      const edgeDist = Math.max(edgeDistX, edgeDistY);
+      const edgeFade = Math.max(0, Math.min(1, (edgeDist - 0.85) / 0.12));  // fade at extreme edges only
+      // Fog color: 0x020c18 = (0.008, 0.047, 0.094)
+      cr = cr * (1 - edgeFade) + 0.008 * edgeFade;
+      cg = cg * (1 - edgeFade) + 0.047 * edgeFade;
+      cb = cb * (1 - edgeFade) + 0.094 * edgeFade;
+      colors[i*3]   = Math.min(1, cr);
+      colors[i*3+1] = Math.min(1, cg);
+      colors[i*3+2] = Math.min(1, cb);
     }
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
     const mat = new THREE.MeshStandardMaterial({
       vertexColors: true,
-      emissive:     new THREE.Color(0x005522),
-      emissiveIntensity: 0.85,
-      roughness: 0.82, metalness: 0.10,
+      emissive:     new THREE.Color(0x003318),
+      emissiveIntensity: 0.5,
+      roughness: 0.85, metalness: 0.08,
     });
     this.seafloor = new THREE.Mesh(geo, mat);
     this.seafloor.rotation.x = -Math.PI / 2;
@@ -1111,10 +1242,151 @@ class Renderer {
     }
   }
 
+  // ── Seafloor rock clusters (instanced shader — scattered boulders/coral) ──
+  _createSeafloorRocks() {
+    const COUNT = 10000;
+    // Cross-plane geometry for each rock cluster: 2 quads forming an X
+    const posArr = [], uvArr = [], idxArr = [];
+    const RW = 12, RH = 14;
+    for (let pl = 0; pl < 2; pl++) {
+      const ang = (pl / 2) * Math.PI;
+      const ca = Math.cos(ang), sa = Math.sin(ang);
+      const base = (posArr.length / 3);
+      // 4 verts per quad
+      for (let xi = -1; xi <= 1; xi += 2) {
+        for (let yi = 0; yi <= 1; yi++) {
+          posArr.push(xi * RW * ca, yi * RH, xi * RW * sa);
+          uvArr.push((xi + 1) * 0.5, yi);
+        }
+      }
+      idxArr.push(base, base+1, base+2, base+2, base+1, base+3);
+    }
+    const geo = new THREE.InstancedBufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(posArr, 3));
+    geo.setAttribute('uv',       new THREE.Float32BufferAttribute(uvArr,  2));
+    geo.setIndex(idxArr);
+    geo.instanceCount = COUNT;
+
+    const iOffset = new Float32Array(COUNT * 3);
+    const iScale  = new Float32Array(COUNT);
+    const iRotY   = new Float32Array(COUNT);
+    const iType   = new Float32Array(COUNT); // 0=rock, 1=coral
+    let placed = 0;
+    const MAX_TRIES = COUNT * 4;
+    for (let t = 0; t < MAX_TRIES && placed < COUNT; t++) {
+      const ix = (Math.random() - 0.5) * WORLD_W * 2.0;
+      const iz = (Math.random() - 0.5) * WORLD_H * 2.0;
+      // Scattered with mild noise clustering
+      const n = Noise.fbm(ix * 0.002, iz * 0.002, 2, 2.0, 0.5, 77);
+      if (n < 0.35) continue;
+      // Terrain height
+      const floorW = WORLD_W + 30000, floorH = WORLD_H + 30000;
+      const twx = ix / floorW, twz = iz / floorH;
+      const tRidge  = Noise.fbm(twx * 3 + 0.5, twz * 3 + 0.5, 4, 2.2, 0.52, 42);
+      const tDetail = Noise.fbm(twx * 8,        twz * 8,        5, 2.1, 0.45, 200);
+      const terrH   = (tRidge * 0.65 + tDetail * 0.35) * 320 - 320 * 0.3;
+      iOffset[placed*3]     = ix;
+      iOffset[placed*3 + 1] = -WORLD_DEPTH + terrH + 1;
+      iOffset[placed*3 + 2] = iz;
+      iScale[placed]  = 0.3 + n * 0.9 + Math.random() * 0.3;
+      iRotY[placed]   = Math.random() * Math.PI * 2;
+      iType[placed]   = Math.random() < 0.35 ? 1.0 : 0.0;
+      placed++;
+    }
+    geo.instanceCount = placed;
+    geo.setAttribute('aOffset', new THREE.InstancedBufferAttribute(iOffset, 3));
+    geo.setAttribute('aScale',  new THREE.InstancedBufferAttribute(iScale,  1));
+    geo.setAttribute('aRotY',   new THREE.InstancedBufferAttribute(iRotY,   1));
+    geo.setAttribute('aType',   new THREE.InstancedBufferAttribute(iType,   1));
+
+    const mat = new THREE.ShaderMaterial({
+      uniforms: THREE.UniformsUtils.merge([
+        THREE.UniformsLib.fog,
+        { uTime: { value: 0.0 }, uRayMap: { value: this._godRayMap || null } },
+      ]),
+      vertexShader: /* glsl */`
+        #include <fog_pars_vertex>
+        attribute vec3  aOffset;
+        attribute float aScale;
+        attribute float aRotY;
+        attribute float aType;
+        varying float vHeight;
+        varying float vType;
+        varying vec2  vWorldXZ;
+        varying vec2  vRayUV;
+        void main() {
+          vec3 pos = position * aScale;
+          float cy = cos(aRotY), sy = sin(aRotY);
+          pos = vec3(pos.x * cy - pos.z * sy, pos.y, pos.x * sy + pos.z * cy);
+          pos += aOffset;
+          vHeight = uv.y;
+          vType   = aType;
+          vWorldXZ = pos.xz * 0.00045;
+          vRayUV = pos.xz / vec2(${(WORLD_W + 600).toFixed(1)}, ${(WORLD_H + 600).toFixed(1)}) + 0.5;
+          vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+          gl_Position = projectionMatrix * mvPosition;
+          #include <fog_vertex>
+        }
+      `,
+      fragmentShader: /* glsl */`
+        #include <fog_pars_fragment>
+        uniform float uTime;
+        uniform sampler2D uRayMap;
+        varying float vHeight;
+        varying float vType;
+        varying vec2  vWorldXZ;
+        varying vec2  vRayUV;
+
+        float causticLight(vec2 p, float t) {
+          vec2 w1 = vec2(sin(p.y * 1.618 + t * 0.28 + p.x * 0.3),
+                         cos(p.x * 1.414 - t * 0.22 + p.y * 0.4)) * 0.45;
+          vec2 q = p + w1;
+          float n1 = sin(q.x * 4.637 + t * 0.68) * cos(q.y * 5.179 - t * 0.57);
+          float n2 = sin(q.x * 3.271 - q.y * 5.743 + t * 0.61);
+          return (n1 + n2) * 0.5;
+        }
+
+        void main() {
+          vec3 col;
+          float a;
+          if (vType < 0.5) {
+            vec3 base = vec3(0.02, 0.05, 0.06);
+            vec3 top  = vec3(0.04, 0.14, 0.10);
+            col = mix(base, top, vHeight);
+            a = 0.7 - vHeight * 0.25;
+          } else {
+            vec3 base = vec3(0.06, 0.02, 0.04);
+            vec3 top  = vec3(0.28, 0.08, 0.14);
+            col = mix(base, top, vHeight);
+            a = 0.65 - vHeight * 0.15;
+          }
+          a *= smoothstep(1.0, 0.75, vHeight);
+          // God ray + caustic lighting
+          float rayLight = texture2D(uRayMap, vRayUV).r;
+          float lightMod = 0.3 + rayLight * 1.3;
+          vec2 cp = vWorldXZ * 15.5;
+          float c = causticLight(cp, uTime) * 0.5 + 0.5;
+          float caustic = pow(smoothstep(0.46, 0.76, c), 1.6);
+          col += vec3(0.04, 0.15, 0.12) * caustic * lightMod;
+          col *= (0.7 + 0.3 * lightMod);
+          gl_FragColor = vec4(col, a);
+          #include <fog_fragment>
+        }
+      `,
+      transparent: true, alphaTest: 0.1, depthWrite: true,
+      side: THREE.DoubleSide, fog: true,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.frustumCulled = false;
+    this.scene.add(mesh);
+    this._rockMesh = mesh;
+    this._rockTimeRef = mat.uniforms.uTime;
+  }
+
   // ── Water surface — shader-animated, only visible near surface ──
   _createWaterSurface() {
     const segs = 32;
-    const geo  = new THREE.PlaneGeometry(WORLD_W + 2000, WORLD_H + 2000, segs, segs);
+    const geo  = new THREE.PlaneGeometry(WORLD_W + 30000, WORLD_H + 30000, segs, segs);
     this.surfaceGeo = geo;
     this.surfacePositions = geo.attributes.position;
 
@@ -1238,15 +1510,15 @@ class Renderer {
     });
     this._spotMat = spotMat;  // keep ref to animate opacity
 
-    const shaftCount = 22;
+    const shaftCount = 36;
     for (let i = 0; i < shaftCount; i++) {
       // Surface at Y=1250, seafloor at Y=-WORLD_DEPTH → total depth 1250+WORLD_DEPTH.
       // Shafts span 70-100 % of that so they reach or nearly reach the seafloor.
       const SURF_Y   = 1250;
       const h = (SURF_Y + WORLD_DEPTH) * (0.70 + Math.random() * 0.30);
       const r = 60 + Math.random() * 110;
-      const sx = (Math.random() - 0.5) * WORLD_W;
-      const sz = (Math.random() - 0.5) * WORLD_H;
+      const sx = (Math.random() - 0.5) * WORLD_W * 1.8;
+      const sz = (Math.random() - 0.5) * WORLD_H * 1.8;
       const phase = Math.random() * Math.PI * 2;
 
       // ── Single billboard plane (Y-axis billboard each frame, avoids cross pattern from top) ──
@@ -1264,25 +1536,81 @@ class Renderer {
       });
 
       const mesh = new THREE.Mesh(geo, mat);
-      // Consistent sun angle with per-shaft variation.
-      mesh.rotation.x = -0.32 + (Math.random() - 0.5) * 0.15;
-      mesh.rotation.z =  0.22 + (Math.random() - 0.5) * 0.12;
+      // Consistent sun angle — all shafts share the same direction.
+      mesh.rotation.x = -0.32;
+      mesh.rotation.z =  0.22;
       mesh.position.set(sx, 1250, sz);  // tops at surface Y=1250
       this.scene.add(mesh);
 
-      // ── Seafloor spotlight disc ──
+      // ── Seafloor spotlight disc — terrain-following ──
       const spotR = r * (0.35 + Math.random() * 0.4);
       const spot  = new THREE.Mesh(
         new THREE.CircleGeometry(spotR, 20),
         spotMat.clone()
       );
       spot.rotation.x = -Math.PI / 2;
-      spot.position.set(sx, -WORLD_DEPTH + 8, sz);
+      // Sample terrain height at spotlight position
+      const _fw = WORLD_W + 30000, _fh = WORLD_H + 30000;
+      const _twx = sx / _fw, _twz = sz / _fh;
+      const _tRidge  = Noise.fbm(_twx * 3 + 0.5, _twz * 3 + 0.5, 4, 2.2, 0.52, 42);
+      const _tDetail = Noise.fbm(_twx * 8, _twz * 8, 5, 2.1, 0.45, 200);
+      const _terrH   = (_tRidge * 0.65 + _tDetail * 0.35) * 320 - 320 * 0.3;
+      spot.position.set(sx, -WORLD_DEPTH + _terrH + 6, sz);
       spot.userData.phase = phase;
       this.scene.add(spot);
 
-      this.lightShafts.push({ mesh, spot });
+      this.lightShafts.push({ mesh, spot, wx: sx, wz: sz, radius: r });
     }
+
+    // Build a god ray light map — 128×128 texture encoding combined ray brightness
+    // across the world XZ plane. Shaders sample this to brighten areas under rays.
+    this._buildGodRayLightMap();
+  }
+
+  _buildGodRayLightMap() {
+    const RES = 128;
+    const data = new Uint8Array(RES * RES * 4);
+    const hw = WORLD_W * 0.5, hh = WORLD_H * 0.5;
+    for (let iy = 0; iy < RES; iy++) {
+      for (let ix = 0; ix < RES; ix++) {
+        // Map texel to world XZ (Three.js coords: X = worldX - hw, Z = worldY - hh)
+        const wx = (ix / (RES - 1) - 0.5) * (WORLD_W + 600);
+        const wz = (iy / (RES - 1) - 0.5) * (WORLD_H + 600);
+        let brightness = 0;
+        for (const shaft of this.lightShafts) {
+          const dx = wx - shaft.wx, dz = wz - shaft.wz;
+          const d = Math.sqrt(dx * dx + dz * dz);
+          const falloff = Math.max(0, 1 - d / (shaft.radius * 1.8));
+          brightness += falloff * falloff;
+        }
+        brightness = Math.min(1, brightness);
+        const idx = (iy * RES + ix) * 4;
+        const v = Math.round(brightness * 255);
+        data[idx] = v; data[idx + 1] = v; data[idx + 2] = v; data[idx + 3] = 255;
+      }
+    }
+    const tex = new THREE.DataTexture(data, RES, RES, THREE.RGBAFormat);
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.needsUpdate = true;
+    this._godRayMap = tex;
+    // Pre-compute world-to-UV transform for JS-side sampling
+    this._godRayMapW = WORLD_W + 600;
+    this._godRayMapH = WORLD_H + 600;
+    this._godRayData = data;
+    this._godRayRes = RES;
+  }
+
+  // Sample god ray brightness at a world position (returns 0-1)
+  _sampleGodRay(worldX, worldY) {
+    if (!this._godRayData) return 0.3;
+    const RES = this._godRayRes;
+    const u = (this.wx(worldX) / this._godRayMapW + 0.5);
+    const v = (this.wz(worldY) / this._godRayMapH + 0.5);
+    const ix = Math.min(RES - 1, Math.max(0, Math.round(u * (RES - 1))));
+    const iy = Math.min(RES - 1, Math.max(0, Math.round(v * (RES - 1))));
+    return this._godRayData[(iy * RES + ix) * 4] / 255;
   }
 
   _updateLightShafts() {
@@ -1302,9 +1630,21 @@ class Renderer {
 
   // ── Caustics — animated light projection on seafloor ───────────
   _createCaustics() {
-    const geo = new THREE.PlaneGeometry(WORLD_W + 1200, WORLD_H + 1200, 1, 1);
+    // Use same segment count and dimensions as seafloor so caustics drape over terrain
+    const segs = this._floorSegs || 100;
+    const W = this._floorW || (WORLD_W + 6000);
+    const H = this._floorH || (WORLD_H + 6000);
+    const geo = new THREE.PlaneGeometry(W, H, segs, segs);
+    // Copy seafloor heights into caustic mesh vertices (offset slightly above terrain)
+    if (this._floorHeights) {
+      const cpos = geo.attributes.position;
+      for (let i = 0; i < cpos.count && i < this._floorHeights.length; i++) {
+        cpos.setZ(i, this._floorHeights[i] + 8);
+      }
+      cpos.needsUpdate = true;
+    }
     const mat = new THREE.ShaderMaterial({
-      uniforms: { uTime: { value: 0.0 } },
+      uniforms: { uTime: { value: 0.0 }, uRayMap: { value: this._godRayMap || null } },
       vertexShader: /* glsl */`
         varying vec2 vUv;
         void main() {
@@ -1314,30 +1654,50 @@ class Renderer {
       `,
       fragmentShader: /* glsl */`
         uniform float uTime;
+        uniform sampler2D uRayMap;
         varying vec2 vUv;
 
-        // Caustic cell: returns bright streaks at interference maxima
+        // Smooth value noise — no grid artifacts
+        float snoise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);  // smoothstep interpolation
+          float a = fract(sin(dot(i,              vec2(127.1, 311.7))) * 43758.5453);
+          float b = fract(sin(dot(i + vec2(1, 0), vec2(127.1, 311.7))) * 43758.5453);
+          float c = fract(sin(dot(i + vec2(0, 1), vec2(127.1, 311.7))) * 43758.5453);
+          float d = fract(sin(dot(i + vec2(1, 1), vec2(127.1, 311.7))) * 43758.5453);
+          return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+        }
+
+        // Caustic cell — multi-layer warped sine with smooth noise breakup
         float causticCell(vec2 p, float t) {
-          // Warp UVs slightly to break up grid regularity
-          vec2 warp = vec2(sin(p.y * 1.7 + t * 0.3), cos(p.x * 1.5 - t * 0.25)) * 0.35;
-          vec2 q = p + warp;
-          float n1 = sin(q.x * 4.8 + t * 0.72) * cos(q.y * 5.3 - t * 0.61);
-          float n2 = sin(q.x * 3.6 - q.y * 5.9 + t * 0.65);
-          float n3 = cos(length(q * 2.8 - 1.4) * 4.7 - t * 0.95);
+          // Domain warp using smooth noise for organic distortion
+          vec2 w1 = vec2(sin(p.y * 1.618 + t * 0.28 + p.x * 0.3),
+                         cos(p.x * 1.414 - t * 0.22 + p.y * 0.4)) * 0.45;
+          vec2 w2 = vec2(snoise(p * 0.8 + t * 0.12) - 0.5,
+                         snoise(p * 0.7 + vec2(5.3, 2.1) + t * 0.09) - 0.5) * 0.55;
+          vec2 q = p + w1 + w2;
+          float n1 = sin(q.x * 4.637 + t * 0.68) * cos(q.y * 5.179 - t * 0.57);
+          float n2 = sin(q.x * 3.271 - q.y * 5.743 + t * 0.61);
+          float n3 = cos(length(q * 2.618 - vec2(1.309, 0.891)) * 4.327 - t * 0.88);
           return (n1 + n2 + n3) * 0.333;
         }
 
         void main() {
-          vec2  p    = vUv * 7.0;
-          float c1   = causticCell(p,           uTime)        * 0.5 + 0.5;
-          float c2   = causticCell(p * 0.65 + vec2(2.1, 1.7), uTime * 0.75) * 0.5 + 0.5;
-          float avg  = (c1 * 0.6 + c2 * 0.4);
-          // Sharp caustic lines with natural falloff
-          float bright = pow(smoothstep(0.48, 0.78, avg), 1.8);
-          // Second harmonic — faint ambient between main streaks
-          float ambient = smoothstep(0.30, 0.52, avg) * 0.04;
-          vec3 col = vec3(0.03, 0.48, 0.64);
-          gl_FragColor = vec4(col, bright * 0.22 + ambient);
+          vec2  p    = vUv * 5.5;
+          float c1   = causticCell(p,                                uTime)        * 0.5 + 0.5;
+          float c2   = causticCell(p * 0.618 + vec2(2.236, 1.732),  uTime * 0.73) * 0.5 + 0.5;
+          float c3   = causticCell(p * 1.272 + vec2(0.866, 3.142),  uTime * 1.08) * 0.5 + 0.5;
+          float avg  = (c1 * 0.40 + c2 * 0.35 + c3 * 0.25);
+          float bright = pow(smoothstep(0.44, 0.74, avg), 1.7);
+          float ambient = smoothstep(0.28, 0.50, avg) * 0.04;
+          // God ray light map — caustics are much brighter under shafts, dim in shadow
+          float rayLight = texture2D(uRayMap, vUv).r;
+          float lightMod = 0.25 + rayLight * 1.5;
+          vec3 coolCol = vec3(0.04, 0.52, 0.70);
+          vec3 warmCol = vec3(0.12, 0.65, 0.55);
+          vec3 col = mix(coolCol, warmCol, bright);
+          gl_FragColor = vec4(col, (bright * 0.30 + ambient) * lightMod);
         }
       `,
       transparent:    true,
@@ -1348,7 +1708,7 @@ class Renderer {
 
     const mesh = new THREE.Mesh(geo, mat);
     mesh.rotation.x = -Math.PI / 2;
-    mesh.position.y  = -WORLD_DEPTH + 45;   // hover just above seafloor terrain
+    mesh.position.y  = -WORLD_DEPTH;   // base at seafloor; vertex heights drape over terrain
     mesh.frustumCulled = false;
     this.scene.add(mesh);
     this._causticsMesh = mesh;
@@ -1360,7 +1720,18 @@ class Renderer {
 
   // ── Sand ridges — directional wave ripples on seafloor ─────────
   _createSandRidges() {
-    const geo = new THREE.PlaneGeometry(WORLD_W + 1200, WORLD_H + 1200, 1, 1);
+    // Use same segment count and dimensions as seafloor to drape over terrain
+    const segs = this._floorSegs || 100;
+    const W = this._floorW || (WORLD_W + 6000);
+    const H = this._floorH || (WORLD_H + 6000);
+    const geo = new THREE.PlaneGeometry(W, H, segs, segs);
+    if (this._floorHeights) {
+      const spos = geo.attributes.position;
+      for (let i = 0; i < spos.count && i < this._floorHeights.length; i++) {
+        spos.setZ(i, this._floorHeights[i] + 5);
+      }
+      spos.needsUpdate = true;
+    }
     const mat = new THREE.ShaderMaterial({
       uniforms: { uTime: { value: 0.0 } },
       vertexShader: /* glsl */`
@@ -1375,31 +1746,26 @@ class Renderer {
         varying vec2  vUv;
 
         void main() {
-          // Primary current direction ripples (slow drift)
-          vec2  p   = vUv * 18.0;
-          float dir = 0.38;                       // dominant current angle
+          // Subtle seafloor texture — gentle directional ripples, not bold stripes
+          vec2  p   = vUv * 12.0;
+          float dir = 0.38;
           float along = p.x * cos(dir) + p.y * sin(dir);
           float cross = p.x * -sin(dir) + p.y * cos(dir);
 
-          // Main ridge bands — spaced sine waves perpendicular to current
-          float ridge = sin(along * 1.0 + uTime * 0.018);
-          // Secondary finer ripples — slight angular offset
-          float fine  = sin(along * 3.2 + cross * 0.4 + uTime * 0.025) * 0.4;
-          // Micro texture from cross-current turbulence
-          float micro = sin(cross * 5.5 + along * 0.8 + uTime * 0.04) * 0.2;
+          // Layered low-contrast ripples
+          float r1 = sin(along * 1.618 + cross * 0.3 + uTime * 0.012) * 0.5;
+          float r2 = sin(along * 2.847 + cross * 0.7 + uTime * 0.018) * 0.3;
+          float r3 = sin(cross * 3.236 + along * 0.5 + uTime * 0.015) * 0.2;
+          float pattern = (r1 + r2 + r3) * 0.28 + 0.5;
 
-          float pattern = ridge + fine + micro;   // -1.6 … +1.6
-          pattern = pattern * 0.33 + 0.5;         // remap to 0..1
+          float crest = smoothstep(0.54, 0.72, pattern);
+          float trough = smoothstep(0.54, 0.36, pattern);
 
-          // Ridge crests are lighter (pale sand), troughs darker
-          float crest = smoothstep(0.52, 0.75, pattern);
-          float trough = smoothstep(0.52, 0.25, pattern);
-
-          vec3 sandLight = vec3(0.07, 0.28, 0.22);   // light sand ridge
-          vec3 sandDark  = vec3(0.01, 0.08, 0.06);   // shadow trough
+          vec3 sandLight = vec3(0.04, 0.16, 0.12);
+          vec3 sandDark  = vec3(0.01, 0.06, 0.04);
           vec3 col = mix(sandDark, sandLight, crest);
 
-          float alpha = (crest * 0.28 + trough * 0.10);
+          float alpha = (crest * 0.14 + trough * 0.05);
           gl_FragColor = vec4(col, alpha);
         }
       `,
@@ -1410,7 +1776,7 @@ class Renderer {
 
     const mesh = new THREE.Mesh(geo, mat);
     mesh.rotation.x = -Math.PI / 2;
-    mesh.position.y  = -WORLD_DEPTH + 55;
+    mesh.position.y  = -WORLD_DEPTH;   // base at seafloor; vertex heights drape over terrain
     mesh.frustumCulled = false;
     this.scene.add(mesh);
     this._sandRidgesMesh = mesh;
@@ -1421,6 +1787,42 @@ class Renderer {
   }
 
   // ── Selection ring under selected ship ────────────────────────
+  // ── Edge fog — concentric fog cylinders that hide the terrain boundaries ──
+  _createEdgeFog() {
+    const fogColor = this.scene.fog ? this.scene.fog.color : new THREE.Color(0x091e2e);
+    const height = WORLD_DEPTH + 2800;
+    const baseY = -WORLD_DEPTH - 200;
+    this._edgeFogMeshes = [];
+
+    // Concentric cylinders with increasing opacity — creates a smooth volumetric fade
+    const layers = [
+      { radius: 4800, opacity: 0.04 },
+      { radius: 5400, opacity: 0.08 },
+      { radius: 6000, opacity: 0.14 },
+      { radius: 6800, opacity: 0.22 },
+      { radius: 7600, opacity: 0.35 },
+      { radius: 8500, opacity: 0.50 },
+      { radius: 9500, opacity: 0.70 },
+      { radius: 11000, opacity: 0.88 },
+    ];
+
+    for (const layer of layers) {
+      const geo = new THREE.CylinderGeometry(layer.radius, layer.radius, height, 48, 1, true);
+      const mat = new THREE.MeshBasicMaterial({
+        color: fogColor.clone(),
+        transparent: true,
+        opacity: layer.opacity,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.y = baseY + height * 0.5;
+      mesh.frustumCulled = false;
+      this.scene.add(mesh);
+      this._edgeFogMeshes.push(mesh);
+    }
+  }
+
   _createSelectionRing() {
     const geo  = new THREE.TorusGeometry(1, 3.5, 10, 36);
     const mat  = new THREE.MeshBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 1.0 });
@@ -1471,7 +1873,7 @@ class Renderer {
       if (slot.health <= 0) continue;
       const arcHalf = slot.arc;
       if (arcHalf >= Math.PI * 0.95) continue; // omni — skip visual clutter
-      const range = slot.weapon.range * 0.68;
+      const range = slot.weapon.range;
       const shape = new THREE.Shape();
       shape.moveTo(0, 0);
       for (let j = 0; j <= segs; j++) {
@@ -1564,13 +1966,13 @@ class Renderer {
 
   _createBiolumParticles() {
     // 3D particles distributed throughout the water column
-    const count = 900;
+    const count = 1800;
     const positions = new Float32Array(count * 3);
     this.biolumData = new Float32Array(count * 5); // x, y (depth), z, phase, riseSpeed
     for (let i = 0; i < count; i++) {
-      const bx = (Math.random() - 0.5) * WORLD_W;
-      const by = -(Math.random() * WORLD_DEPTH);       // 0 (surface) to -WORLD_DEPTH
-      const bz = (Math.random() - 0.5) * WORLD_H;
+      const bx = (Math.random() - 0.5) * WORLD_W * 1.8;
+      const by = -(Math.random() * WORLD_DEPTH);
+      const bz = (Math.random() - 0.5) * WORLD_H * 1.8;
       positions[i*3]   = bx;
       positions[i*3+1] = by;
       positions[i*3+2] = bz;
@@ -1592,6 +1994,62 @@ class Renderer {
     });
     this.biolumPoints = new THREE.Points(geo, mat);
     this.scene.add(this.biolumPoints);
+
+    // Marine snow / sediment particles — larger, dimmer, slower, drifting downward
+    const snowCount = 600;
+    const snowPos = new Float32Array(snowCount * 3);
+    this._snowData = new Float32Array(snowCount * 5);
+    for (let i = 0; i < snowCount; i++) {
+      const sx = (Math.random() - 0.5) * WORLD_W * 1.8;
+      const sy = -(Math.random() * WORLD_DEPTH * 0.85);
+      const sz = (Math.random() - 0.5) * WORLD_H * 1.8;
+      snowPos[i*3] = sx; snowPos[i*3+1] = sy; snowPos[i*3+2] = sz;
+      this._snowData[i*5] = sx;
+      this._snowData[i*5+1] = sy;
+      this._snowData[i*5+2] = sz;
+      this._snowData[i*5+3] = Math.random() * Math.PI * 2;
+      this._snowData[i*5+4] = 3 + Math.random() * 8;  // fall speed (slow)
+    }
+    const snowGeo = new THREE.BufferGeometry();
+    snowGeo.setAttribute('position', new THREE.BufferAttribute(snowPos, 3));
+    this._snowPositions = snowGeo.attributes.position;
+    const snowMat = new THREE.PointsMaterial({
+      color: 0x88aacc, size: 4, sizeAttenuation: true,
+      transparent: true, opacity: 0.35,
+    });
+    this._snowPoints = new THREE.Points(snowGeo, snowMat);
+    this.scene.add(this._snowPoints);
+
+    // Current streaks — thin elongated lines showing ambient water flow
+    const streakCount = 200;
+    const streakLen = 40;
+    const streakPos = new Float32Array(streakCount * 6); // 2 verts per streak
+    this._streakData = new Float32Array(streakCount * 6); // x, y, z, phase, speed, angle
+    for (let i = 0; i < streakCount; i++) {
+      const sx = (Math.random() - 0.5) * WORLD_W * 1.8;
+      const sy = -(50 + Math.random() * (WORLD_DEPTH - 200));
+      const sz = (Math.random() - 0.5) * WORLD_H * 1.8;
+      const ang = 0.38 + (Math.random() - 0.5) * 0.4; // current direction ± variation
+      const spd = 15 + Math.random() * 35;
+      const dx = Math.cos(ang) * streakLen;
+      const dz = Math.sin(ang) * streakLen;
+      streakPos[i*6]   = sx;      streakPos[i*6+1] = sy; streakPos[i*6+2] = sz;
+      streakPos[i*6+3] = sx + dx; streakPos[i*6+4] = sy; streakPos[i*6+5] = sz + dz;
+      this._streakData[i*6]   = sx;
+      this._streakData[i*6+1] = sy;
+      this._streakData[i*6+2] = sz;
+      this._streakData[i*6+3] = Math.random() * Math.PI * 2;
+      this._streakData[i*6+4] = spd;
+      this._streakData[i*6+5] = ang;
+    }
+    const streakGeo = new THREE.BufferGeometry();
+    streakGeo.setAttribute('position', new THREE.BufferAttribute(streakPos, 3));
+    this._streakPositions = streakGeo.attributes.position;
+    const streakMat = new THREE.LineBasicMaterial({
+      color: 0x44bbcc, transparent: true, opacity: 0.12, depthWrite: false,
+    });
+    this._streakLines = new THREE.LineSegments(streakGeo, streakMat);
+    this.scene.add(this._streakLines);
   }
 
   _updateBiolum(dt) {
@@ -1613,8 +2071,8 @@ class Renderer {
       // Wrap: when reaching surface, teleport to deep
       if (by > 5) {
         by = -(WORLD_DEPTH * 0.8 + Math.random() * WORLD_DEPTH * 0.2);
-        bx = (Math.random() - 0.5) * WORLD_W;
-        bz = (Math.random() - 0.5) * WORLD_H;
+        bx = (Math.random() - 0.5) * WORLD_W * 1.8;
+        bz = (Math.random() - 0.5) * WORLD_H * 1.8;
       }
 
       this.biolumData[i*5]   = bx;
@@ -1624,6 +2082,60 @@ class Renderer {
     }
     pos.needsUpdate = true;
     this.biolumPoints.material.opacity = 0.5 + 0.35 * Math.abs(Math.sin(t * 0.7));
+
+    // Marine snow — slowly descend, lateral drift
+    if (this._snowData && this._snowPositions) {
+      const sp = this._snowPositions;
+      const sn = this._snowData.length / 5;
+      for (let i = 0; i < sn; i++) {
+        let sx = this._snowData[i*5];
+        let sy = this._snowData[i*5+1];
+        let sz = this._snowData[i*5+2];
+        const sph = this._snowData[i*5+3];
+        const srs = this._snowData[i*5+4];
+        sx += Math.sin(t * 0.1 + sph) * 6 * dt;
+        sz += Math.cos(t * 0.08 + sph * 0.7) * 5 * dt;
+        sy -= srs * dt;
+        if (sy < -WORLD_DEPTH * 0.9) {
+          sy = -(Math.random() * WORLD_DEPTH * 0.15);
+          sx = (Math.random() - 0.5) * WORLD_W * 1.8;
+          sz = (Math.random() - 0.5) * WORLD_H * 1.8;
+        }
+        this._snowData[i*5] = sx;
+        this._snowData[i*5+1] = sy;
+        this._snowData[i*5+2] = sz;
+        sp.setXYZ(i, sx, sy, sz);
+      }
+      sp.needsUpdate = true;
+    }
+
+    // Current streaks — drift along water flow direction
+    if (this._streakData && this._streakPositions) {
+      const sp2 = this._streakPositions;
+      const sn2 = this._streakData.length / 6;
+      const streakLen = 40;
+      for (let i = 0; i < sn2; i++) {
+        let sx = this._streakData[i*6];
+        let sy = this._streakData[i*6+1];
+        let sz = this._streakData[i*6+2];
+        const ang = this._streakData[i*6+5];
+        const spd = this._streakData[i*6+4];
+        sx += Math.cos(ang) * spd * dt;
+        sz += Math.sin(ang) * spd * dt;
+        // Wrap when out of bounds
+        if (sx > WORLD_W * 1.0) sx -= WORLD_W * 1.8;
+        if (sx < -WORLD_W * 1.0) sx += WORLD_W * 1.8;
+        if (sz > WORLD_H * 1.0) sz -= WORLD_H * 1.8;
+        if (sz < -WORLD_H * 1.0) sz += WORLD_H * 1.8;
+        const dx = Math.cos(ang) * streakLen;
+        const dz = Math.sin(ang) * streakLen;
+        sp2.setXYZ(i*2, sx, sy, sz);
+        sp2.setXYZ(i*2+1, sx + dx, sy, sz + dz);
+        this._streakData[i*6] = sx;
+        this._streakData[i*6+2] = sz;
+      }
+      sp2.needsUpdate = true;
+    }
   }
 
   // ── Sea grass (shader-instanced, single draw call, zero per-blade lights) ─
@@ -1632,7 +2144,7 @@ class Renderer {
     const BLADE_H     = 95;
     const BLADE_W     = 9;
     const PLANES      = 3;    // cross-planes: visible from any horizontal angle
-    const COUNT       = 12000; // max slots; actual placed count set by noise rejection
+    const COUNT       = 30000; // max slots; actual placed count set by noise rejection
 
     // Each cluster = PLANES quads rotated 60° apart in XZ.
     // Blades lean outward in the shader so they're also visible from above.
@@ -1673,9 +2185,9 @@ class Renderer {
     let placed = 0;
     const MAX_TRIES = COUNT * 5;
     for (let t = 0; t < MAX_TRIES && placed < COUNT; t++) {
-      // Extend 45 % beyond world boundary so grass fades into fog — infinite feel.
-      const ix = (Math.random() - 0.5) * WORLD_W * 1.45;
-      const iz = (Math.random() - 0.5) * WORLD_H * 1.45;
+      // Extend well beyond world boundary so grass fades into fog — infinite ocean feel.
+      const ix = (Math.random() - 0.5) * WORLD_W * 2.2;
+      const iz = (Math.random() - 0.5) * WORLD_H * 2.2;
 
       // Large-scale (~800 unit) patches control the broad shape of grass fields
       const nLarge = Noise.fbm(ix * 0.00125, iz * 0.00125, 3, 2.1, 0.5, 11);
@@ -1684,11 +2196,11 @@ class Renderer {
       // Combine: large-scale dominates, medium adds texture
       const density = nLarge * 0.70 + nMed * 0.30;
 
-      // Reject if below threshold — tune threshold to control overall coverage (~55%)
-      if (density < 0.42) continue;
+      // Reject if below threshold — tune threshold to control overall coverage (~70%)
+      if (density < 0.30) continue;
 
       // Match grass base to actual terrain height using the same noise as _createSeafloor.
-      const floorW = WORLD_W + 6000, floorH = WORLD_H + 6000;
+      const floorW = WORLD_W + 30000, floorH = WORLD_H + 30000;
       const twx = ix / floorW, twz = iz / floorH;
       const tRidge  = Noise.fbm(twx * 3 + 0.5, twz * 3 + 0.5, 4, 2.2, 0.52, 42);
       const tDetail = Noise.fbm(twx * 8,        twz * 8,        5, 2.1, 0.45, 200);
@@ -1715,7 +2227,7 @@ class Renderer {
     const mat = new THREE.ShaderMaterial({
       uniforms: THREE.UniformsUtils.merge([
         THREE.UniformsLib.fog,
-        { uTime: { value: 0.0 } },
+        { uTime: { value: 0.0 }, uRayMap: { value: this._godRayMap || null } },
       ]),
       vertexShader: /* glsl */`
         #include <fog_pars_vertex>
@@ -1727,6 +2239,8 @@ class Renderer {
         attribute float aRotY;
         uniform   float uTime;
         varying   float vHeight;
+        varying   vec2  vWorldXZ;
+        varying   vec2  vRayUV;
 
         void main() {
           vec3 pos = position * aScale;
@@ -1751,6 +2265,9 @@ class Renderer {
 
           pos += aOffset;
           vHeight = aHeightFactor;
+          vWorldXZ = pos.xz * 0.00045;
+          // UV for god ray light map (world position → 0..1)
+          vRayUV = pos.xz / vec2(${(WORLD_W + 600).toFixed(1)}, ${(WORLD_H + 600).toFixed(1)}) + 0.5;
           vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
           gl_Position = projectionMatrix * mvPosition;
           #include <fog_vertex>
@@ -1758,15 +2275,45 @@ class Renderer {
       `,
       fragmentShader: /* glsl */`
         #include <fog_pars_fragment>
+        uniform float uTime;
+        uniform sampler2D uRayMap;
         varying float vHeight;
+        varying vec2  vWorldXZ;
+        varying vec2  vRayUV;
+
+        float causticLight(vec2 p, float t) {
+          vec2 w1 = vec2(sin(p.y * 1.618 + t * 0.28 + p.x * 0.3),
+                         cos(p.x * 1.414 - t * 0.22 + p.y * 0.4)) * 0.45;
+          vec2 q = p + w1;
+          float n1 = sin(q.x * 4.637 + t * 0.68) * cos(q.y * 5.179 - t * 0.57);
+          float n2 = sin(q.x * 3.271 - q.y * 5.743 + t * 0.61);
+          return (n1 + n2) * 0.5;
+        }
+
         void main() {
-          vec3 base = vec3(0.01, 0.12, 0.06);
-          vec3 mid  = vec3(0.02, 0.44, 0.28);
-          vec3 tip  = vec3(0.06, 0.74, 0.54);
+          vec3 base = vec3(0.01, 0.10, 0.05);
+          vec3 mid  = vec3(0.02, 0.42, 0.26);
+          vec3 tip  = vec3(0.08, 0.82, 0.58);
           vec3 col  = vHeight < 0.5
             ? mix(base, mid, vHeight * 2.0)
             : mix(mid,  tip, (vHeight - 0.5) * 2.0);
-          gl_FragColor = vec4(col, 0.55 + 0.40 * vHeight);
+          // Bioluminescent tip glow
+          float tipGlow = smoothstep(0.7, 1.0, vHeight);
+          float pulse = 0.6 + 0.4 * sin(uTime * 1.8 + vHeight * 6.0);
+          col += vec3(0.02, 0.35, 0.25) * tipGlow * pulse;
+          // Warm base accent
+          float baseWarm = smoothstep(0.3, 0.0, vHeight);
+          col += vec3(0.06, 0.03, 0.01) * baseWarm;
+          // God ray light — grass under shafts is brighter, outside is dimmer
+          float rayLight = texture2D(uRayMap, vRayUV).r;
+          float lightMod = 0.35 + rayLight * 1.2;
+          // Caustic dappling — scaled by god ray presence
+          vec2 cp = vWorldXZ * 15.5;
+          float c = causticLight(cp, uTime) * 0.5 + 0.5;
+          float caustic = pow(smoothstep(0.46, 0.76, c), 1.6);
+          col += vec3(0.05, 0.22, 0.16) * caustic * lightMod * (0.6 + 0.4 * vHeight);
+          col *= (0.7 + 0.3 * lightMod);
+          gl_FragColor = vec4(col, 0.55 + 0.42 * vHeight);
           #include <fog_fragment>
         }
       `,
@@ -1782,24 +2329,47 @@ class Renderer {
     this.scene.add(mesh);
     this._seaGrassMesh = mesh;
 
-    // Jellyfish — purely emissive, no point lights
+    // Jellyfish — bell body + trailing tentacles, purely emissive
     this._jellyMeshes = [];
-    const jCols = [0x00ffaa, 0x8844ff, 0xff44cc, 0x00ccff, 0x55ddaa, 0xff88ee];
-    for (let i = 0; i < 6; i++) {
-      const r    = 18 + Math.random() * 26;
-      const jGeo = new THREE.SphereGeometry(r, 7, 5);
-      jGeo.scale(1, 0.55, 1);
-      const jMat = new THREE.MeshBasicMaterial({
-        color: jCols[i % jCols.length], transparent: true, opacity: 0.48, depthWrite: false,
-      });
-      const m = new THREE.Mesh(jGeo, jMat);
-      const jx = (Math.random() - 0.5) * WORLD_W * 0.85;
-      const jy = -80 - Math.random() * 600;
-      const jz = (Math.random() - 0.5) * WORLD_H * 0.85;
-      m.position.set(jx, jy, jz);
-      m.userData = { baseY: jy, phase: Math.random() * Math.PI * 2, driftSpeed: 3 + Math.random() * 5 };
-      this.scene.add(m);
-      this._jellyMeshes.push(m);
+    const jCols = [0x00ffaa, 0x8844ff, 0xff44cc, 0x00ccff, 0x55ddaa, 0xff88ee,
+                   0x44ffdd, 0xbb66ff, 0xff66aa, 0x22ddff, 0x88ffcc, 0xdd88ff];
+    for (let i = 0; i < 14; i++) {
+      const r    = 12 + Math.random() * 28;
+      const col  = jCols[i % jCols.length];
+      const group = new THREE.Group();
+      // Bell (dome)
+      const bellGeo = new THREE.SphereGeometry(r, 8, 6, 0, Math.PI * 2, 0, Math.PI * 0.6);
+      bellGeo.scale(1, 0.55, 1);
+      const bellMat = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.42, depthWrite: false });
+      group.add(new THREE.Mesh(bellGeo, bellMat));
+      // Inner bell (brighter core)
+      const innerGeo = new THREE.SphereGeometry(r * 0.55, 6, 4, 0, Math.PI * 2, 0, Math.PI * 0.5);
+      innerGeo.scale(1, 0.45, 1);
+      const innerMat = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.65, depthWrite: false });
+      group.add(new THREE.Mesh(innerGeo, innerMat));
+      // Tentacles — thin cylinders hanging below
+      const tentCount = 4 + Math.floor(Math.random() * 5);
+      for (let t = 0; t < tentCount; t++) {
+        const tLen  = r * (1.5 + Math.random() * 2.5);
+        const tRad  = 0.3 + Math.random() * 0.5;
+        const tGeo  = new THREE.CylinderGeometry(tRad * 0.3, tRad, tLen, 4);
+        const tMat  = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.28, depthWrite: false });
+        const tMesh = new THREE.Mesh(tGeo, tMat);
+        const tAng  = (t / tentCount) * Math.PI * 2;
+        const tDist = r * 0.4 + Math.random() * r * 0.3;
+        tMesh.position.set(Math.cos(tAng) * tDist, -tLen * 0.5 - r * 0.15, Math.sin(tAng) * tDist);
+        tMesh.rotation.z = (Math.random() - 0.5) * 0.3;
+        tMesh.userData.tentPhase = Math.random() * Math.PI * 2;
+        group.add(tMesh);
+      }
+      const jx = (Math.random() - 0.5) * WORLD_W * 0.9;
+      const jy = -60 - Math.random() * 700;
+      const jz = (Math.random() - 0.5) * WORLD_H * 0.9;
+      group.position.set(jx, jy, jz);
+      group.userData = { baseY: jy, phase: Math.random() * Math.PI * 2, driftSpeed: 2 + Math.random() * 4,
+                         driftX: (Math.random() - 0.5) * 12, driftZ: (Math.random() - 0.5) * 8 };
+      this.scene.add(group);
+      this._jellyMeshes.push(group);
     }
   }
 
@@ -1807,11 +2377,28 @@ class Renderer {
     if (this._seaGrassMesh) {
       this._seaGrassMesh.material.uniforms.uTime.value = this.time;
     }
-    for (const m of (this._jellyMeshes || [])) {
-      const ph = m.userData.phase;
-      const dy = Math.sin(this.time * (m.userData.driftSpeed || 4) * 0.1 + ph) * 18;
-      m.position.y = m.userData.baseY + dy;
-      m.scale.y    = 0.5 + 0.1 * Math.abs(Math.sin(this.time * 2.5 + ph));
+    if (this._rockTimeRef) {
+      this._rockTimeRef.value = this.time;
+    }
+    for (const g of (this._jellyMeshes || [])) {
+      const ph = g.userData.phase;
+      const spd = g.userData.driftSpeed || 4;
+      // Vertical bob
+      const dy = Math.sin(this.time * spd * 0.1 + ph) * 22;
+      g.position.y = g.userData.baseY + dy;
+      // Lateral drift
+      g.position.x += (g.userData.driftX || 0) * dt;
+      g.position.z += (g.userData.driftZ || 0) * dt;
+      // Bell pulsation
+      const pulse = 0.5 + 0.12 * Math.abs(Math.sin(this.time * 2.5 + ph));
+      g.scale.y = pulse;
+      // Tentacle sway
+      for (const child of g.children) {
+        if (child.userData.tentPhase !== undefined) {
+          child.rotation.x = Math.sin(this.time * 1.2 + child.userData.tentPhase) * 0.15;
+          child.rotation.z = Math.cos(this.time * 0.9 + child.userData.tentPhase * 1.3) * 0.12;
+        }
+      }
     }
   }
 
@@ -1820,7 +2407,7 @@ class Renderer {
     this.terrainGroup.clear();
     // Thermal halocline layer — semi-transparent plane at THERMAL_LAYER_DEPTH
     if (!this._thermalLayer) {
-      const tlGeo = new THREE.PlaneGeometry(WORLD_W + 4000, WORLD_H + 4000, 1, 1);
+      const tlGeo = new THREE.PlaneGeometry(WORLD_W + 30000, WORLD_H + 30000, 1, 1);
       const tlMat = new THREE.MeshBasicMaterial({
         color: 0x001a44,
         transparent: true,
@@ -1834,7 +2421,7 @@ class Renderer {
       this.scene.add(this._thermalLayer);
       // Edge glow lines
       const edgeGeo = new THREE.BufferGeometry();
-      const hw = (WORLD_W + 4000) / 2, hh = (WORLD_H + 4000) / 2;
+      const hw = (WORLD_W + 30000) / 2, hh = (WORLD_H + 30000) / 2;
       edgeGeo.setAttribute('position', new THREE.Float32BufferAttribute([
         -hw, -THERMAL_LAYER_DEPTH, -hh,
          hw, -THERMAL_LAYER_DEPTH, -hh,
@@ -1899,16 +2486,56 @@ class Renderer {
         spine.position.set(tx, -WORLD_DEPTH + spineH * 0.5, tz);
         spine.rotation.z = (Math.random() - 0.5) * 0.3;
         this.terrainGroup.add(spine);
+      } else if (t.type === 'rock_pillar') {
+        // Rock pillar: tall column rising from seafloor through mid-water, blocks LOS
+        const pillarH = 400 + Math.random() * 500;
+        const baseR   = t.radius * 0.35;
+        const topR    = t.radius * 0.12;
+        const pillarGeo = new THREE.CylinderGeometry(topR, baseR, pillarH, 8);
+        const pillarMat = new THREE.MeshStandardMaterial({
+          color: 0x1a2a28, emissive: new THREE.Color(0x041008), emissiveIntensity: 0.3,
+          roughness: 0.92, metalness: 0.08,
+        });
+        const pillar = new THREE.Mesh(pillarGeo, pillarMat);
+        pillar.position.set(tx, -WORLD_DEPTH + pillarH * 0.5, tz);
+        pillar.rotation.z = (Math.random() - 0.5) * 0.15;
+        this.terrainGroup.add(pillar);
+        // Scattered boulders at base
+        for (let b = 0; b < 4; b++) {
+          const bAng = Math.random() * Math.PI * 2;
+          const bDist = baseR + Math.random() * t.radius * 0.4;
+          const bSize = 15 + Math.random() * 25;
+          const bGeo = new THREE.DodecahedronGeometry(bSize, 0);
+          bGeo.scale(1, 0.4 + Math.random() * 0.3, 1);
+          const bMat = new THREE.MeshStandardMaterial({
+            color: 0x1a2a28, emissive: 0x030806, emissiveIntensity: 0.2,
+            roughness: 0.95,
+          });
+          const bMesh = new THREE.Mesh(bGeo, bMat);
+          bMesh.position.set(
+            tx + Math.cos(bAng) * bDist,
+            -WORLD_DEPTH + bSize * 0.3,
+            tz + Math.sin(bAng) * bDist
+          );
+          bMesh.rotation.set(Math.random()*0.5, Math.random()*Math.PI*2, Math.random()*0.5);
+          this.terrainGroup.add(bMesh);
+        }
+        // Subtle glow at pillar base
+        const glowMat = new THREE.MeshBasicMaterial({ color: 0x00aa66, transparent: true, opacity: 0.08 });
+        const glowDisc = new THREE.Mesh(new THREE.CircleGeometry(baseR * 1.5, 12), glowMat);
+        glowDisc.rotation.x = -Math.PI / 2;
+        glowDisc.position.set(tx, -WORLD_DEPTH + 3, tz);
+        this.terrainGroup.add(glowDisc);
       } else if (t.type === 'kelp') {
-        // Deep-water kelp: long ribbons rising from mid-depth toward surface
+        // Deep-water kelp: long ribbons rooted at seafloor, rising toward surface
         for (let k=0; k<18; k++) {
           const ang = Math.random()*Math.PI*2;
           const r = Math.random()*t.radius*0.8;
-          const h = 200 + Math.random()*450;
+          const h = 350 + Math.random()*550;
           const geo = new THREE.CylinderGeometry(2,6,h,5);
           const mat = new THREE.MeshStandardMaterial({ color: 0x0b2a08, emissive: 0x051a03, emissiveIntensity: 0.5 });
           const m = new THREE.Mesh(geo, mat);
-          const baseY = -450 - Math.random() * 250;
+          const baseY = -WORLD_DEPTH + 5;
           m.position.set(tx + Math.cos(ang)*r, baseY + h/2, tz + Math.sin(ang)*r);
           m.rotation.z = (Math.random()-0.5)*0.25;
           this.terrainGroup.add(m);
@@ -1938,7 +2565,7 @@ class Renderer {
           const mat = new THREE.MeshBasicMaterial({
             color: new THREE.Color(0x1a4d1a).lerpColors(new THREE.Color(0x1a4d1a), new THREE.Color(0x005500), frac),
             transparent: true,
-            opacity: 0.04 + frac * 0.03,
+            opacity: 0.12 + frac * 0.06,
             depthWrite: false,
             side: THREE.DoubleSide,
           });
@@ -1987,10 +2614,11 @@ class Renderer {
         void main() {
           // Fresnel: bright at silhouette edges, dark head-on
           float rim = 1.0 - abs(dot(vNormal, vViewDir));
-          rim = pow(rim, 2.2);
-          // Slow pulse
-          float pulse = 0.7 + 0.3 * sin(uTime * 1.4);
-          gl_FragColor = vec4(uColor * 1.4, rim * 0.55 * pulse);
+          rim = pow(rim, 1.8);
+          // Slow pulse + secondary fast shimmer
+          float pulse = 0.75 + 0.25 * sin(uTime * 1.4);
+          float shimmer = 1.0 + 0.08 * sin(uTime * 7.0 + vNormal.x * 4.0);
+          gl_FragColor = vec4(uColor * 1.6, rim * 0.65 * pulse * shimmer);
         }
       `,
       transparent: true,
@@ -2000,9 +2628,19 @@ class Renderer {
     const rimMesh = new THREE.Mesh(rimGeo, rimMat);
     rimMesh.name = 'rim';
 
-    // Point light (ship glow) — bright enough to illuminate nearby seafloor/creatures
-    const light = new THREE.PointLight(new THREE.Color(ship.glowColor), 1.8, ship.size * 22);
+    // Main point light (ship glow) — illuminates nearby seafloor/creatures
+    const light = new THREE.PointLight(new THREE.Color(ship.glowColor), 2.2, ship.size * 25);
     group.add(light);
+
+    // Underside fill light — simulates bioluminescent ocean bounce
+    const fillLight = new THREE.PointLight(0x002244, 1.0, ship.size * 12);
+    fillLight.position.set(0, -ship.size * 0.4 / (ship.size / 20), 0);
+    group.add(fillLight);
+
+    // Forward spotlight — subtle directional accent on bow
+    const bowLight = new THREE.PointLight(new THREE.Color(ship.glowColor), 0.6, ship.size * 8);
+    bowLight.position.set(0, 2, -ship.size * 0.6 / (ship.size / 20));
+    group.add(bowLight);
 
     const container = new THREE.Group();
     container.add(group);
@@ -2039,7 +2677,26 @@ class Renderer {
     // Turret slot visual representations
     const turretMeshes = this._buildTurretMeshes(ship, group, sf);
 
-    const data = { container, group, light, ship, hullMeshes, thrusters, engineGlows, turretMeshes };
+    // Running lights — port red, starboard green, stern white, bow blue
+    const navLights = [];
+    const navDefs = [
+      { x: -12 * sf, y: 2 * sf, z:  5 * sf, color: 0xff2200, phase: 0 },       // port
+      { x:  12 * sf, y: 2 * sf, z:  5 * sf, color: 0x00ff44, phase: 0.5 },      // starboard
+      { x:   0,      y: 3 * sf, z: 30 * sf, color: 0xffffff, phase: 1.0 },      // stern
+      { x:   0,      y: 2 * sf, z:-32 * sf, color: new THREE.Color(ship.glowColor).getHex(), phase: 1.5 }, // bow
+    ];
+    for (const nd of navDefs) {
+      const nlGeo = new THREE.SphereGeometry(0.8 * sf, 5, 4);
+      const nlMat = new THREE.MeshBasicMaterial({ color: nd.color, transparent: true, opacity: 0.9 });
+      const nlMesh = new THREE.Mesh(nlGeo, nlMat);
+      nlMesh.position.set(nd.x, nd.y, nd.z);
+      nlMesh.userData.phase = nd.phase;
+      nlMesh.userData.baseOp = 0.9;
+      group.add(nlMesh);
+      navLights.push(nlMesh);
+    }
+
+    const data = { container, group, light, ship, hullMeshes, thrusters, engineGlows, turretMeshes, navLights };
     this.shipMeshes.set(ship.id, data);
     return data;
   }
@@ -2063,13 +2720,13 @@ class Renderer {
       const data = this.shipMeshes.get(ship.id);
       if (data) {
         this.scene.remove(data.container);
-        if (data.bubbles)    { for (const b of data.bubbles)    this.scene.remove(b); }
-        if (data.rcsBubbles) { for (const b of data.rcsBubbles) this.scene.remove(b); }
+        if (data.bubbles)    { for (const b of data.bubbles)    { this.scene.remove(b); b.geometry.dispose(); b.material.dispose(); } }
+        if (data.rcsBubbles) { for (const b of data.rcsBubbles) { this.scene.remove(b); b.geometry.dispose(); b.material.dispose(); } }
         this.shipMeshes.delete(ship.id);
       }
       // Remove contact blip if present
       const blip = this._contactBlips && this._contactBlips.get(ship.id);
-      if (blip) { this.scene.remove(blip); this._contactBlips.delete(ship.id); }
+      if (blip) { this.scene.remove(blip); blip.geometry.dispose(); blip.material.dispose(); this._contactBlips.delete(ship.id); }
       return;
     }
 
@@ -2085,7 +2742,7 @@ class Renderer {
       const data = this.shipMeshes.get(ship.id);
       if (data) data.container.visible = false;
       const oldBlip = this._contactBlips.get(ship.id);
-      if (oldBlip) { this.scene.remove(oldBlip); this._contactBlips.delete(ship.id); }
+      if (oldBlip) { this.scene.remove(oldBlip); oldBlip.geometry.dispose(); oldBlip.material.dispose(); this._contactBlips.delete(ship.id); }
       const staleRing0 = this._revealedRings && this._revealedRings.get(ship.id);
       if (staleRing0) staleRing0.visible = false;
       return;
@@ -2115,7 +2772,7 @@ class Renderer {
 
     // Full model: remove any lingering blip
     const lingBlip = this._contactBlips && this._contactBlips.get(ship.id);
-    if (lingBlip) { this.scene.remove(lingBlip); this._contactBlips.delete(ship.id); }
+    if (lingBlip) { this.scene.remove(lingBlip); lingBlip.geometry.dispose(); lingBlip.material.dispose(); this._contactBlips.delete(ship.id); }
 
     const data = this._getOrCreateShipMesh(ship);
     data.container.visible = true;
@@ -2156,20 +2813,52 @@ class Renderer {
       group.rotation.x = data._pitchAngle;
     }
 
-    // Turret slot health — hide destroyed turrets, dim damaged ones
+    // Turret tracking + slot health — rotate turrets toward attack target
     if (data.turretMeshes) {
+      const atkTgt = ship.attackTarget && !ship.attackTarget.isDestroyed ? ship.attackTarget : null;
       for (const { mesh, slot } of data.turretMeshes) {
         if (slot.health <= 0) {
           mesh.visible = false;
-        } else {
-          mesh.visible = true;
-          const dimmed = slot.health < 50;
-          mesh.children.forEach(c => {
-            if (c.material && c.material.emissive) {
-              c.material.emissiveIntensity = dimmed ? (c.material._baseEI || 0.1) * 0.25 : (c.material._baseEI || c.material.emissiveIntensity);
-            }
-          });
+          continue;
         }
+        mesh.visible = true;
+        // Rotate turret toward attack target (visual only — engine handles arc checks)
+        if (atkTgt && slot.weapon) {
+          const [wx, wy] = ship._slotWorldPos ? ship._slotWorldPos(slot) : [ship.x, ship.y];
+          const toTarget = Math.atan2(atkTgt.x - wx, -(atkTgt.y - wy));
+          const shipRelative = toTarget - ship.angle;
+          // Clamp to slot arc
+          let diff = ((shipRelative - slot.facing + Math.PI) % (Math.PI * 2)) - Math.PI;
+          if (diff > Math.PI) diff -= Math.PI * 2;
+          if (diff < -Math.PI) diff += Math.PI * 2;
+          const clamped = Math.abs(diff) <= slot.arc
+            ? slot.facing + diff
+            : slot.facing + Math.sign(diff) * slot.arc;
+          const targetRotY = -clamped;
+          // Smooth lerp toward target rotation
+          if (mesh._currentRotY === undefined) mesh._currentRotY = mesh.rotation.y;
+          let rDiff = targetRotY - mesh._currentRotY;
+          if (rDiff > Math.PI) rDiff -= Math.PI * 2;
+          if (rDiff < -Math.PI) rDiff += Math.PI * 2;
+          mesh._currentRotY += rDiff * Math.min(1, 4.5 * _dt);
+          mesh.rotation.y = mesh._currentRotY;
+        } else {
+          // No target — return to default facing
+          const restRotY = -slot.facing;
+          if (mesh._currentRotY === undefined) mesh._currentRotY = restRotY;
+          let rDiff = restRotY - mesh._currentRotY;
+          if (rDiff > Math.PI) rDiff -= Math.PI * 2;
+          if (rDiff < -Math.PI) rDiff += Math.PI * 2;
+          mesh._currentRotY += rDiff * Math.min(1, 2.0 * _dt);
+          mesh.rotation.y = mesh._currentRotY;
+        }
+        // Dim damaged turrets
+        const dimmed = slot.health < 50;
+        mesh.children.forEach(c => {
+          if (c.material && c.material.emissive) {
+            c.material.emissiveIntensity = dimmed ? (c.material._baseEI || 0.1) * 0.25 : (c.material._baseEI || c.material.emissiveIntensity);
+          }
+        });
       }
     }
     // Hit flash / destroyed fade — use cached hull mesh refs, no traverse()
@@ -2177,7 +2866,18 @@ class Renderer {
     if (ship.hitFlashTimer > 0) {
       for (const c of hullMeshes) c.material.emissiveIntensity = 1.5;
     } else {
-      for (const c of hullMeshes) c.material.emissiveIntensity = c.material._baseEI || 0.25;
+      // God ray + caustic light on hull
+      const _rayLight = this._sampleGodRay(ship.x, ship.y);
+      const _lightMod = 0.3 + _rayLight * 1.3;
+      const _cx = ship.x * 0.007, _cy = ship.y * 0.007, _ct = this.time;
+      const _w1 = Math.sin(_cy * 1.618 + _ct * 0.28 + _cx * 0.3) * 0.45;
+      const _w2 = Math.cos(_cx * 1.414 - _ct * 0.22 + _cy * 0.4) * 0.45;
+      const _n1 = Math.sin((_cx + _w2) * 4.637 + _ct * 0.68) * Math.cos((_cy + _w1) * 5.179 - _ct * 0.57);
+      const _n2 = Math.sin((_cx + _w2) * 3.271 - (_cy + _w1) * 5.743 + _ct * 0.61);
+      const _caustic = Math.max(0, (_n1 + _n2) * 0.25 + 0.5);
+      const _cBoost = _caustic * _caustic * 0.22 * _lightMod;
+      const _baseEImod = _lightMod * 0.85 + 0.15;  // ships in shadow are dimmer overall
+      for (const c of hullMeshes) c.material.emissiveIntensity = (c.material._baseEI || 0.32) * _baseEImod + _cBoost;
     }
     if (ship.isDestroyed) {
       const initT = ship.deathType === 'sink' ? 5.0 : ship.deathType === 'detonate' ? 3.5 : 2.5;
@@ -2223,6 +2923,28 @@ class Renderer {
     // Rim glow time update
     const rimMesh = container.children.find(c => c.name === 'rim');
     if (rimMesh) rimMesh.material.uniforms.uTime.value = this.time;
+
+    // Running lights — blink pattern
+    if (data.navLights && !ship.isDestroyed) {
+      for (const nl of data.navLights) {
+        const blink = Math.sin(this.time * 3.5 + nl.userData.phase * Math.PI * 2);
+        nl.material.opacity = blink > 0.2 ? 0.9 : 0.15;
+      }
+    } else if (data.navLights && ship.isDestroyed) {
+      for (const nl of data.navLights) nl.material.opacity = 0;
+    }
+
+    // Depth-based hull tinting — deeper = bluer/darker ambient feel
+    if (!ship.isDestroyed) {
+      const depthFrac = Math.min(1, (ship.depth || 0) / (WORLD_DEPTH * 0.8));
+      const depthDim = 1.0 - depthFrac * 0.3;  // up to 30% darker at max depth
+      const depthBlue = depthFrac * 0.08;        // subtle blue shift
+      for (const c of hullMeshes) {
+        if (c.material._baseColor === undefined) c.material._baseColor = c.material.color.clone();
+        c.material.color.copy(c.material._baseColor).multiplyScalar(depthDim);
+        c.material.color.b = Math.min(1, c.material.color.b + depthBlue);
+      }
+    }
 
     // ── RCS thrusters — permanent dim fixtures that vent bubbles when firing ──
     if (data.thrusters) {
@@ -2273,7 +2995,7 @@ class Renderer {
         const b = data.rcsBubbles[i];
         b.userData.life -= _dt;
         if (b.userData.life <= 0) {
-          this.scene.remove(b);
+          this.scene.remove(b); b.geometry.dispose(); b.material.dispose();
           data.rcsBubbles.splice(i, 1);
           continue;
         }
@@ -2340,7 +3062,7 @@ class Renderer {
       const b = data.bubbles[i];
       b.userData.life -= _dt;
       if (b.userData.life <= 0) {
-        this.scene.remove(b);
+        this.scene.remove(b); b.geometry.dispose(); b.material.dispose();
         data.bubbles.splice(i, 1);
         continue;
       }
@@ -2438,14 +3160,11 @@ class Renderer {
       }
       const mesh = this.projMeshes.get(p.id);
       mesh.position.set(this.wx(p.x), -(p.depth || 0), this.wz(p.y));
-      // Orient toward velocity
+      // Orient toward velocity direction
       if (p.vx !== undefined && p.vy !== undefined) {
-        if (mesh.userData.isTorpedo) {
-          // Cylinder laid flat along local Z — rotate Y to face travel direction in world XZ
-          mesh.rotation.y = Math.atan2(p.vx, p.vy);
-        } else {
-          mesh.rotation.y = -Math.atan2(p.vx, -p.vy);
-        }
+        // Game coords: vx = sin(angle)*speed, vy = -cos(angle)*speed
+        // Three.js XZ plane: travel direction = (vx, -vy) since game Y → Three.js -Z
+        mesh.rotation.y = -Math.atan2(p.vx, -p.vy);
       }
     }
   }
@@ -2540,10 +3259,9 @@ class Renderer {
   // ── Move Marker ───────────────────────────────────────────────
   _ensureMoveMarker() {
     if (!this._moveMarkerMesh) {
-      const geo = new THREE.TorusGeometry(1, 2, 8, 32);
+      const geo = new THREE.SphereGeometry(1, 12, 8);
       const mat = new THREE.MeshBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.8 });
       this._moveMarkerMesh = new THREE.Mesh(geo, mat);
-      this._moveMarkerMesh.rotation.x = Math.PI/2;
       this.scene.add(this._moveMarkerMesh);
     }
   }
@@ -2699,10 +3417,9 @@ class Renderer {
 
   _ensureGhostMarkers(count) {
     while (this._ghostMarkers.length < count) {
-      const geo = new THREE.TorusGeometry(1, 2, 8, 32);
+      const geo = new THREE.SphereGeometry(1, 10, 8);
       const mat = new THREE.MeshBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.35, depthWrite: false });
       const m = new THREE.Mesh(geo, mat);
-      m.rotation.x = Math.PI / 2;
       m.visible = false;
       this.scene.add(m);
       this._ghostMarkers.push(m);
@@ -2882,7 +3599,7 @@ class Renderer {
               const wy2d = sel.y + slot.pos.x * sa - slot.pos.y * ca;
               group.position.set(this.wx(wx2d), -(sel.depth || 0) - 1, this.wz(wy2d));
               group.rotation.y = -(sel.angle + slot.facing);
-              fan.material.opacity = 0.07 + 0.04 * Math.sin(this.time * 2);
+              fan.material.opacity = 0.09;
             }
           }
         } else {
@@ -2986,7 +3703,10 @@ class Renderer {
     if (this._causticsMesh)  this._causticsMesh.visible = visible;
     if (this._sandRidgesMesh)this._sandRidgesMesh.visible = visible;
     if (this._seaGrassMesh)  this._seaGrassMesh.visible = visible;
+    if (this._rockMesh)      this._rockMesh.visible = visible;
     if (this.biolumPoints)   this.biolumPoints.visible = visible;
+    if (this._snowPoints)    this._snowPoints.visible = visible;
+    if (this._streakLines)   this._streakLines.visible = visible;
     for (const m of (this._atmosMeshes || []))        m.visible = visible;
     for (const m of (this._jellyMeshes || []))        m.visible = visible;
     for (const { mesh, spot } of (this.lightShafts || [])) {
@@ -3787,8 +4507,8 @@ class Renderer {
   clearCombatEntities() {
     for (const [id, data] of this.shipMeshes) {
       this.scene.remove(data.container);
-      if (data.bubbles)    { for (const b of data.bubbles)    this.scene.remove(b); }
-      if (data.rcsBubbles) { for (const b of data.rcsBubbles) this.scene.remove(b); }
+      if (data.bubbles)    { for (const b of data.bubbles)    { this.scene.remove(b); b.geometry.dispose(); b.material.dispose(); } }
+      if (data.rcsBubbles) { for (const b of data.rcsBubbles) { this.scene.remove(b); b.geometry.dispose(); b.material.dispose(); } }
     }
     this.shipMeshes.clear();
     for (const [id, mesh] of this.projMeshes) {
@@ -3810,7 +4530,7 @@ class Renderer {
     if (this._selRing) this._selRing.visible = false;
     // Contact blips
     if (this._contactBlips) {
-      for (const [, mesh] of this._contactBlips) this.scene.remove(mesh);
+      for (const [, mesh] of this._contactBlips) { this.scene.remove(mesh); mesh.geometry.dispose(); mesh.material.dispose(); }
       this._contactBlips.clear();
     }
     // Sonar rings

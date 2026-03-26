@@ -44,8 +44,10 @@ class Campaign {
     });
 
     c.nodes = c._generateSectorMap(0);
-    c.currentNodeId = c.nodes.find(n => n.type === 'START').id;
+    const startNode = c.nodes.find(n => n.type === 'START');
+    c.currentNodeId = startNode.id;
     c.visitedNodes = new Set([c.currentNodeId]);
+    startNode.visited = true;
     return c;
   }
 
@@ -101,8 +103,10 @@ class Campaign {
     });
 
     c.nodes = c._generateSectorMap(0);
-    c.currentNodeId = c.nodes.find(n => n.type === 'START').id;
+    const startNode2 = c.nodes.find(n => n.type === 'START');
+    c.currentNodeId = startNode2.id;
     c.visitedNodes = new Set([c.currentNodeId]);
+    startNode2.visited = true;
     return c;
   }
 
@@ -300,9 +304,13 @@ class Campaign {
     if (this.sector < CAMPAIGN_CONFIG.sectors) {
       this.nodes = this._generateSectorMap(this.sector);
       const startNode = this.nodes.find(n => n.type === 'START');
-      this.currentNodeId = startNode.id;
-      this.visitedNodes = new Set([startNode.id]);
-      startNode.visited = true;
+      if (!startNode) { this.nodes = this._generateSectorMap(this.sector); }
+      const sn = this.nodes.find(n => n.type === 'START');
+      if (sn) {
+        this.currentNodeId = sn.id;
+        this.visitedNodes = new Set([sn.id]);
+        sn.visited = true;
+      }
     }
   }
 
@@ -431,6 +439,7 @@ class Campaign {
       intel: this.intel,
       totalEnemiesKilled: this.totalEnemiesKilled,
       sectorsCleared: this.sectorsCleared,
+      kethTruce: this.kethTruce,
     };
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(data));
@@ -456,6 +465,7 @@ class Campaign {
       c.intel = data.intel || 0;
       c.totalEnemiesKilled = data.totalEnemiesKilled || 0;
       c.sectorsCleared = data.sectorsCleared || 0;
+      c.kethTruce = data.kethTruce || false;
       return c;
     } catch (e) {
       return null;

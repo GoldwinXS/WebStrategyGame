@@ -14,7 +14,7 @@
   <!-- Three.js from CDN -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 
-  <link rel="stylesheet" href="style.css?v=20260324w">
+  <link rel="stylesheet" href="style.css?v=20260326i">
 </head>
 <body>
   <!-- Three.js renders here — always visible -->
@@ -176,7 +176,10 @@
           <div class="fb-slot-picker-inner">
             <div class="fb-slot-picker-title">Select Turret Slot</div>
             <div class="fb-slot-picker-subtitle" id="fb-slot-picker-subtitle"></div>
-            <div class="fb-slot-picker-list" id="fb-slot-picker-list"></div>
+            <div class="fb-slot-picker-body">
+              <canvas id="fb-slot-picker-diagram" class="fb-slot-picker-diagram" width="140" height="180"></canvas>
+              <div class="fb-slot-picker-list" id="fb-slot-picker-list"></div>
+            </div>
             <button class="fb-slot-picker-cancel" id="fb-slot-picker-cancel">Cancel</button>
           </div>
         </div>
@@ -468,7 +471,7 @@
           <button class="btn-hud btn-fleet-cmd" id="btn-fleet-blind-fire" title="Toggle blind fire for all selected ships">◉ BLIND FIRE: OFF</button>
           <span class="hud-btn-divider"></span>
           <button class="btn-hud btn-ping" id="btn-active-sonar">PING [F]</button>
-          <button class="btn-hud" id="btn-arc-overlay" title="Toggle firing arc overlay [A]">ARCS [A]: ON</button>
+          <button class="btn-hud" id="btn-arc-overlay" title="Toggle firing arc overlay [G]">ARCS [G]: ON</button>
           <button class="btn-hud" id="btn-tacmap">TACMAP [SPACE]</button>
         </div>
         <div id="combat-alert" class="combat-alert hidden"></div>
@@ -527,12 +530,12 @@
   </div><!-- /#ui -->
 
   <!-- Game scripts (order matters) -->
-  <script src="js/data.js?v=20260324w"></script>
-  <script src="js/engine.js?v=20260324w"></script>
-  <script src="js/campaign.js?v=20260324w"></script>
-  <script src="js/render.js?v=20260324w"></script>
-  <script src="js/audio.js?v=20260324w"></script>
-  <script src="js/ui.js?v=20260324w"></script>
-  <script src="js/game.js?v=20260324w"></script>
+  <script src="js/data.js?v=20260326i"></script>
+  <script src="js/engine.js?v=20260326i"></script>
+  <script src="js/campaign.js?v=20260326i"></script>
+  <script src="js/render.js?v=20260326i"></script>
+  <script src="js/audio.js?v=20260326i"></script>
+  <script src="js/ui.js?v=20260326i"></script>
+  <script src="js/game.js?v=20260326i"></script>
 </body>
 </html>

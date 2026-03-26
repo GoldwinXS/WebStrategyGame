@@ -152,19 +152,21 @@ class Game {
     // Camera keyboard controls — behaviour depends on camera mode
     if (this.state === GS.COMBAT) {
       if (this.renderer.camMode === 'follow') {
-        // Follow mode: WASD/arrows orbit around the tracked ship
+        // Follow mode: arrows/WASD orbit around the tracked ship, [ ] also orbit
         const orbitSpd = 0.025;
         if (this._keys['ArrowLeft']  || this._keys['a']) this.renderer.orbitCamera(-orbitSpd);
         if (this._keys['ArrowRight'] || this._keys['d']) this.renderer.orbitCamera( orbitSpd);
         if (this._keys['ArrowUp']    || this._keys['w']) this.renderer.tiltCamera( 0.018);
         if (this._keys['ArrowDown']  || this._keys['s']) this.renderer.tiltCamera(-0.018);
       } else {
-        // Free mode: WASD/arrows pan the camera
+        // Free mode: WASD/arrows pan the camera, [ ] orbit
         const panSpd = 8;
         if (this._keys['ArrowLeft']  || this._keys['a']) this.renderer.panCamera(-panSpd, 0);
         if (this._keys['ArrowRight'] || this._keys['d']) this.renderer.panCamera( panSpd, 0);
         if (this._keys['ArrowUp']    || this._keys['w']) this.renderer.panCamera(0,  panSpd);
         if (this._keys['ArrowDown']  || this._keys['s']) this.renderer.panCamera(0, -panSpd);
+        if (this._keys['[']) this.renderer.orbitCamera(-0.025);
+        if (this._keys[']']) this.renderer.orbitCamera( 0.025);
       }
     }
   }
@@ -217,6 +219,7 @@ class Game {
     this.campaign = Campaign.newRunWithFleet(fleet);
     this.campaign.save();
     this.ui.setupCampaignMap(this.campaign);
+    this.ui.updateCampaignHeader(this.campaign);
     this.ui.showScreen('campaign');
     this.setState(GS.CAMPAIGN);
     audio.playMusic('menu');
@@ -227,6 +230,7 @@ class Game {
     if (!c) return;
     this.campaign = c;
     this.ui.setupCampaignMap(this.campaign);
+    this.ui.updateCampaignHeader(this.campaign);
     this.ui.showScreen('campaign');
     this.setState(GS.CAMPAIGN);
     audio.playMusic('menu');
@@ -456,8 +460,8 @@ class Game {
         const sel = this.combat && this.combat.selectedShip;
         if (sel) this.ui.openDamageControl(sel);
       }
-      // Arc overlay toggle: A key
-      if ((e.key === 'a' || e.key === 'A') && this.state === GS.COMBAT) {
+      // Arc overlay toggle: G key (only on initial press, not repeat)
+      if ((e.key === 'g' || e.key === 'G') && this.state === GS.COMBAT && !e.repeat) {
         const on = this.renderer.toggleArcOverlay();
         this.ui && this.ui.setArcOverlayHint(on);
       }
@@ -562,7 +566,9 @@ class Game {
           boxEl.style.width = (x2-x1)+'px'; boxEl.style.height = (y2-y1)+'px';
         }
       } else if (this._dragMode === 'pan') {
-        this.renderer.panCamera(dx * 1.2, dy * 1.2);
+        // Middle-drag: orbit camera (both modes)
+        this.renderer.orbitCamera(-dx * 0.004);
+        this.renderer.tiltCamera(dy * 0.003);
       } else if (this._dragMode === 'right') {
         const totalDx = e.clientX - rightStartX, totalDy = e.clientY - rightStartY;
         const totalDist = Math.hypot(totalDx, totalDy);
